@@ -87,15 +87,54 @@ def test_semillas_en_bolsas_con_peso_y_cultivo(app, m):
           "insert into producto (establecimiento_id, nombre, categoria, unidad) values (%s, 'Urea en bolsas', 'fertilizante', 'bolsa')", m["est"])
 
 
-def test_repuestos_por_unidad_y_con_modelo(app, m):
+def test_repuestos_por_unidad_con_tipo_y_modelo(app, m):
     ctx(app, m["dueno"], m["est"])
-    producto(app, m, "Filtro de aceite", "repuesto", "unidad", 25, modelo="W 940")
+    producto(app, m, "Filtro de aceite", "repuesto", "unidad", 25, tipo_repuesto="filtro", modelo="filtro para el 3530",
+             notas="el del motor, no el hidráulico")
+    for sql in (
+        "insert into producto (establecimiento_id, nombre, categoria, unidad, tipo_repuesto) values (%s, 'Sin modelo', 'repuesto', 'unidad', 'filtro')",
+        "insert into producto (establecimiento_id, nombre, categoria, unidad, modelo) values (%s, 'Sin tipo', 'repuesto', 'unidad', 'X1')",
+        "insert into producto (establecimiento_id, nombre, categoria, unidad, tipo_repuesto, modelo) values (%s, 'Correa en kg', 'repuesto', 'kg', 'correa', 'B52')",
+        "insert into producto (establecimiento_id, nombre, categoria, unidad) values (%s, 'Glifo por unidad', 'herbicida', 'unidad')",
+        "insert into producto (establecimiento_id, nombre, categoria, unidad, notas) values (%s, 'Glifo con notas', 'herbicida', 'l', 'x')",
+        "insert into producto (establecimiento_id, nombre, categoria, unidad, tipo_repuesto) values (%s, 'Herbicida con tipo', 'herbicida', 'l', 'filtro')",
+    ):
+        falla(app, psycopg.errors.CheckViolation, sql, m["est"])
+
+
+def test_las_cubiertas_llevan_rodado_y_los_demas_repuestos_no(app, m):
+    ctx(app, m["dueno"], m["est"])
+    producto(app, m, "Cubierta trasera", "repuesto", "unidad", 900, tipo_repuesto="cubierta", modelo="Firestone", rodado="18.4-38")
     falla(app, psycopg.errors.CheckViolation,
-          "insert into producto (establecimiento_id, nombre, categoria, unidad) values (%s, 'Filtro sin modelo', 'repuesto', 'unidad')", m["est"])
+          "insert into producto (establecimiento_id, nombre, categoria, unidad, tipo_repuesto, modelo) values (%s, 'Cubierta', 'repuesto', 'unidad', 'cubierta', 'Pirelli')",
+          m["est"])
     falla(app, psycopg.errors.CheckViolation,
-          "insert into producto (establecimiento_id, nombre, categoria, unidad, modelo) values (%s, 'Correa', 'repuesto', 'kg', 'B52')", m["est"])
-    falla(app, psycopg.errors.CheckViolation,
-          "insert into producto (establecimiento_id, nombre, categoria, unidad) values (%s, 'Glifo por unidad', 'herbicida', 'unidad')", m["est"])
+          "insert into producto (establecimiento_id, nombre, categoria, unidad, tipo_repuesto, modelo, rodado) values (%s, 'Filtro', 'repuesto', 'unidad', 'filtro', 'F1', '18.4-38')",
+          m["est"])
+
+
+def test_el_mismo_repuesto_no_se_carga_dos_veces_con_otra_escritura(app, m):
+    ctx(app, m["dueno"], m["est"])
+    producto(app, m, "Correa", "repuesto", "unidad", tipo_repuesto="correa", modelo="correa 48cm")
+    falla(app, psycopg.errors.UniqueViolation,
+          "insert into producto (establecimiento_id, nombre, categoria, unidad, tipo_repuesto, modelo) values (%s, 'Correa de ventilador', 'repuesto', 'unidad', 'correa', '  Correa   48CM ')",
+          m["est"])
+    # mismo nombre, otro modelo: son dos repuestos distintos
+    producto(app, m, "Correa", "repuesto", "unidad", tipo_repuesto="correa", modelo="correa 52cm")
+    # misma marca de cubierta con otro rodado: también distintos
+    producto(app, m, "Cubierta", "repuesto", "unidad", tipo_repuesto="cubierta", modelo="Firestone", rodado="18.4-38")
+    producto(app, m, "Cubierta", "repuesto", "unidad", tipo_repuesto="cubierta", modelo="Firestone", rodado="14.9-24")
+    falla(app, psycopg.errors.UniqueViolation,
+          "insert into producto (establecimiento_id, nombre, categoria, unidad, tipo_repuesto, modelo, rodado) values (%s, 'Cubierta', 'repuesto', 'unidad', 'cubierta', 'firestone', '18.4-38')",
+          m["est"])
+
+
+def test_el_modelo_y_el_tipo_de_un_repuesto_no_se_editan_pero_las_notas_si(app, m):
+    ctx(app, m["dueno"], m["est"])
+    p = producto(app, m, "Filtro", "repuesto", "unidad", tipo_repuesto="filtro", modelo="F1")
+    falla(app, psycopg.errors.InsufficientPrivilege, "update producto set modelo = 'F2' where id = %s", p)
+    falla(app, psycopg.errors.InsufficientPrivilege, "update producto set tipo_repuesto = 'correa' where id = %s", p)
+    app.execute("update producto set notas = 'comprado en la cooperativa' where id = %s", (p,))
 
 
 def test_dos_concentraciones_son_dos_productos_y_el_nombre_no_se_repite(app, m):
@@ -146,7 +185,7 @@ def test_producto_pendiente_toma_el_precio_de_la_primera_compra_con_precio(app, 
 
 def test_stock_negativo_se_permite_se_marca_y_la_compra_siguiente_define_el_promedio(app, m):
     ctx(app, m["dueno"], m["est"])
-    p = producto(app, m, "Filtro", "repuesto", "unidad", 20, modelo="F1")
+    p = producto(app, m, "Filtro", "repuesto", "unidad", 20, tipo_repuesto="filtro", modelo="F1")
     mov = salida(app, m, p, 3)
     revisar, resultante, precio = filas(app, "select revisar, stock_resultante, precio_unitario_usd from movimiento_stock where id = %s", mov)[0]
     assert (revisar, resultante, precio) == (True, -3, 20)
@@ -157,7 +196,7 @@ def test_stock_negativo_se_permite_se_marca_y_la_compra_siguiente_define_el_prom
 def test_una_salida_queda_costeada_al_promedio_del_momento(app, m):
     """RN-10: el costo queda fijo aunque después cambie el promedio."""
     ctx(app, m["dueno"], m["est"])
-    p = producto(app, m, "Correa", "repuesto", "unidad", modelo="B52")
+    p = producto(app, m, "Correa", "repuesto", "unidad", tipo_repuesto="correa", modelo="B52")
     compra(app, m, [(p, 10, 15)])
     uso = salida(app, m, p, 2, fecha="2026-11-23")
     compra(app, m, [(p, 10, 25)], fecha="2026-11-24")
@@ -215,7 +254,7 @@ def test_anular_una_compra_revierte_el_stock_y_recalcula_el_promedio(app, m):
 
 def test_anular_una_compra_no_cambia_el_costo_de_lo_ya_usado(app, m):
     ctx(app, m["dueno"], m["est"])
-    p = producto(app, m, "Cubierta", "repuesto", "unidad", modelo="18.4-38")
+    p = producto(app, m, "Cubierta", "repuesto", "unidad", tipo_repuesto="cubierta", modelo="Firestone", rodado="18.4-38")
     c = compra(app, m, [(p, 4, 500)])
     uso = salida(app, m, p, 2)
     anular(app, "compra", c, m["dueno"])
@@ -280,7 +319,7 @@ def test_no_se_cambia_quien_hizo_una_carga(app, m):
 
 def test_anular_un_uso_de_repuesto_devuelve_el_stock(app, m):
     ctx(app, m["encargado"], m["est"])
-    p = producto(app, m, "Filtro aire", "repuesto", "unidad", 10, modelo="A1")
+    p = producto(app, m, "Filtro aire", "repuesto", "unidad", 10, tipo_repuesto="filtro", modelo="A1")
     compra(app, m, [(p, 5, 10)])
     uso = salida(app, m, p, 2)
     anular(app, "movimiento_stock", uso, m["encargado"])
@@ -363,3 +402,115 @@ def test_productos_y_stock_aislados_entre_establecimientos(app, admin, m):
     falla(app, psycopg.errors.ForeignKeyViolation,
           "insert into compra_item (establecimiento_id, compra_id, producto_id, cantidad) values (%s, %s, %s, 1)", m["est"], c, ajeno)
     falla(app, psycopg.errors.InvalidParameterValue, "select app.fijar_precio_pendiente(%s, 5)", ajeno)
+
+
+# Catálogo precargado: el producto se crea solo al usarlo ------------------------------------
+
+@pytest.fixture
+def catalogo(admin):
+    """Un catálogo chico con nombres únicos por test (el catálogo es global)."""
+    sufijo = str(uno(admin, "select gen_random_uuid()"))[:8]
+    soja = uno(admin, "select id from cultivo where nombre = 'Soja'")
+    ids = {}
+    for clave, nombre, cat, unidad, precio, extra in [
+        ("glifo48", f"Glifosato 48% {sufijo}", "herbicida", "l", 4.5, {}),
+        ("glifo66", f"Glifosato 66% {sufijo}", "herbicida", "l", 6.0, {}),
+        ("24d", f"2,4-D {sufijo}", "herbicida", "l", 5.0, {}),
+        ("soja", f"Soja DM 46i20 {sufijo}", "semilla", "bolsa", 30, {"cultivo_id": soja, "kg_por_bolsa": 40}),
+        ("cubierta", f"Cubierta trasera {sufijo}", "repuesto", "unidad", 900,
+         {"tipo_repuesto": "cubierta", "modelo": f"Firestone {sufijo}", "rodado": "18.4-38"}),
+    ]:
+        cols = ["nombre", "categoria", "unidad", "precio_referencia_usd", *extra]
+        vals = [nombre, cat, unidad, precio, *extra.values()]
+        ids[clave] = uno(admin, f"insert into catalogo_producto ({', '.join(cols)}) values ({', '.join(['%s'] * len(vals))}) returning id", *vals)
+    ids["sufijo"] = sufijo
+    return ids
+
+
+def test_usar_un_producto_del_catalogo_lo_crea_una_sola_vez(app, m, catalogo):
+    ctx(app, m["encargado"], m["est"])
+    p1 = uno(app, "select app.producto_desde_catalogo(%s)", catalogo["glifo48"])
+    p2 = uno(app, "select app.producto_desde_catalogo(%s)", catalogo["glifo48"])
+    assert p1 == p2
+    assert filas(app, "select categoria, unidad, precio_promedio_usd, catalogo_id from producto where id = %s", p1) == [
+        ("herbicida", "l", D("4.5"), catalogo["glifo48"])]
+    compra(app, m, [(p1, 20, 5)])
+    assert stock(app, p1) == 20
+
+
+def test_cada_establecimiento_tiene_su_propia_copia_y_su_promedio(app, admin, m, catalogo):
+    otro = crear_establecimiento(admin, "Otro catálogo")
+    ctx(app, m["dueno"], m["est"])
+    mio = uno(app, "select app.producto_desde_catalogo(%s)", catalogo["24d"])
+    compra(app, m, [(mio, 10, 8)])
+    ctx(app, otro["dueno"], otro["est"])
+    suyo = uno(app, "select app.producto_desde_catalogo(%s)", catalogo["24d"])
+    assert suyo != mio and promedio(app, suyo) == 5 and stock(app, suyo) == 0
+
+
+def test_semilla_del_catalogo_con_peso_tipico_o_el_que_diga_el_usuario(app, admin, m, catalogo):
+    ctx(app, m["dueno"], m["est"])
+    p = uno(app, "select app.producto_desde_catalogo(%s)", catalogo["soja"])
+    assert uno(app, "select kg_por_bolsa from producto where id = %s", p) == 40
+    otro = crear_establecimiento(admin, "Otra semilla")
+    ctx(app, otro["dueno"], otro["est"])
+    p2 = uno(app, "select app.producto_desde_catalogo(%s, 42.5)", catalogo["soja"])
+    assert uno(app, "select kg_por_bolsa from producto where id = %s", p2) == D("42.5")
+
+
+def test_cubierta_del_catalogo_trae_modelo_y_rodado(app, m, catalogo):
+    ctx(app, m["dueno"], m["est"])
+    p = uno(app, "select app.producto_desde_catalogo(%s)", catalogo["cubierta"])
+    assert filas(app, "select tipo_repuesto, rodado from producto where id = %s", p) == [("cubierta", "18.4-38")]
+
+
+def test_un_producto_inactivo_del_catalogo_no_se_puede_usar_por_primera_vez(app, admin, m, catalogo):
+    admin.execute("update catalogo_producto set activo = false where id = %s", (catalogo["glifo66"],))
+    ctx(app, m["dueno"], m["est"])
+    falla(app, psycopg.errors.InvalidParameterValue, "select app.producto_desde_catalogo(%s)", catalogo["glifo66"])
+
+
+# Búsqueda aproximada (RB-06, RB-19) ---------------------------------------------------------
+
+def test_buscar_encuentra_en_el_catalogo_sin_acentos_ni_mayusculas(app, m, catalogo):
+    ctx(app, m["dueno"], m["est"])
+    res = filas(app, "select nombre, origen from app.buscar_productos(%s, 'herbicida', 2)", f"GLIFOSATO {catalogo['sufijo']}")
+    assert {r[0] for r in res} == {f"Glifosato 48% {catalogo['sufijo']}", f"Glifosato 66% {catalogo['sufijo']}"}
+    assert {r[1] for r in res} == {"catalogo"}
+
+
+def test_un_producto_ya_copiado_aparece_como_propio_y_no_duplicado(app, m, catalogo):
+    ctx(app, m["dueno"], m["est"])
+    p = uno(app, "select app.producto_desde_catalogo(%s)", catalogo["24d"])
+    res = filas(app, "select producto_id, catalogo_id, origen from app.buscar_productos(%s, null, 10)", f"2,4-D {catalogo['sufijo']}")
+    assert (p, catalogo["24d"], "propio") in res
+    assert not any(r[1] == catalogo["24d"] and r[2] == "catalogo" for r in res)
+
+
+def test_los_productos_propios_quedan_en_su_establecimiento_y_fuera_del_catalogo(app, admin, m):
+    otro = crear_establecimiento(admin, "Ajeno 2")
+    ctx(app, m["dueno"], m["est"])
+    producto(app, m, "Mezcla casera Don Pedro")
+    ctx(app, otro["dueno"], otro["est"])
+    assert not any(r[0] == "Mezcla casera Don Pedro"
+                   for r in filas(app, "select nombre from app.buscar_productos('Mezcla casera Don Pedro', null, 20)"))
+    assert uno(app, "select count(*) from catalogo_producto where nombre = 'Mezcla casera Don Pedro'") == 0
+
+
+def test_el_bot_encuentra_el_repuesto_existente_aunque_se_diga_distinto(app, m):
+    ctx(app, m["dueno"], m["est"])
+    correa = producto(app, m, "Correa", "repuesto", "unidad", tipo_repuesto="correa", modelo="correa 48cm")
+    producto(app, m, "Correa", "repuesto", "unidad", tipo_repuesto="correa", modelo="correa 120cm")
+    producto(app, m, "Filtro", "repuesto", "unidad", tipo_repuesto="filtro", modelo="filtro para el 3530")
+    primero = filas(app, "select producto_id from app.buscar_productos('la correa de 48 cm', 'repuesto', 3)")[0][0]
+    assert primero == correa
+    filtro = filas(app, "select modelo from app.buscar_productos('filtro del 3530', 'repuesto', 1)")[0][0]
+    assert filtro == "filtro para el 3530"
+
+
+def test_buscar_no_muestra_productos_de_otro_establecimiento(app, admin, m):
+    otro = crear_establecimiento(admin, "Otro buscador")
+    ctx(app, otro["dueno"], otro["est"])
+    producto(app, otro, "Correa", "repuesto", "unidad", tipo_repuesto="correa", modelo="correa secreta 77")
+    ctx(app, m["dueno"], m["est"])
+    assert all(r[0] != "correa secreta 77" for r in filas(app, "select modelo from app.buscar_productos('correa secreta 77', null, 20)"))

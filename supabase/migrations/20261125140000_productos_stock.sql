@@ -1,6 +1,12 @@
 -- 0004 Productos y stock: catálogo base, productos, compras, movimientos de stock y precio promedio.
 -- Diseño: RF-03 a RF-07, RF-19, RF-36, RN-03, RN-04, RN-13, RN-14, RN-30, RN-32.
--- Decisión del 25/11/2026: los repuestos usan la unidad 'unidad' (RN-14 solo preveía l, kg y bolsa).
+-- Decisiones del 25/11/2026:
+--   * Los repuestos usan la unidad 'unidad' (RN-14 solo preveía l, kg y bolsa).
+--   * Los repuestos tienen tipo (cubierta, filtro, correa, otro), modelo obligatorio de texto libre,
+--     rodado (solo cubiertas) y notas opcionales (solo repuestos).
+--   * El catálogo viene precargado: el producto del establecimiento se crea solo la primera vez que
+--     se usa un producto del catálogo (app.producto_desde_catalogo), sin un paso de alta aparte.
+--   * Las semillas del catálogo traen un peso por bolsa típico que el usuario puede cambiar al usarlas.
 
 -- Reglas comunes de las cargas (sección 2 del diseño y RN-09) ------------------
 -- 1. Quién la cargó, desde dónde y desde qué mensaje no se cambian nunca.
@@ -39,6 +45,17 @@ create trigger lluvia_reglas_carga before update on public.lluvia
 create trigger desmonte_reglas_carga before update on public.desmonte
   for each row execute function app.reglas_carga();
 
+-- El backend usa pg_trgm y unaccent (búsqueda aproximada de productos, RB-06).
+grant usage on schema extensions to micampo_app;
+
+-- Texto normalizado para comparar nombres y modelos: minúsculas, sin acentos y sin espacios de más.
+create function app.normalizar(p_texto text) returns text
+language sql immutable set search_path = ''
+as $$
+  select regexp_replace(lower(extensions.unaccent('extensions.unaccent'::regdictionary, btrim(coalesce(p_texto, '')))),
+                        '\s+', ' ', 'g')
+$$;
+
 -- Catálogo base (RN-30, RF-36): global, lo mantiene el administrador. El backend solo lo lee.
 create table public.catalogo_producto (
   id uuid primary key default gen_random_uuid(),
@@ -48,10 +65,20 @@ create table public.catalogo_producto (
   unidad text not null check (unidad in ('l', 'kg', 'bolsa', 'unidad')),
   principio_activo text,
   concentracion text,
+  cultivo_id uuid references public.cultivo (id),
+  kg_por_bolsa numeric(8, 2) check (kg_por_bolsa is null or kg_por_bolsa > 0),
+  tipo_repuesto text check (tipo_repuesto in ('cubierta', 'filtro', 'correa', 'otro')),
   modelo text,
+  rodado text,
   precio_referencia_usd numeric(14, 4) check (precio_referencia_usd is null or precio_referencia_usd >= 0),
   activo boolean not null default true,
-  creado_en timestamptz not null default now()
+  creado_en timestamptz not null default now(),
+  check ((categoria = 'semilla') = (unidad = 'bolsa')),
+  check (categoria <> 'semilla' or (kg_por_bolsa is not null and cultivo_id is not null)),
+  check ((categoria = 'repuesto') = (unidad = 'unidad')),
+  check ((categoria = 'repuesto') = (tipo_repuesto is not null)),
+  check (categoria <> 'repuesto' or length(btrim(coalesce(modelo, ''))) > 0),
+  check ((tipo_repuesto is not distinct from 'cubierta') = (length(btrim(coalesce(rodado, ''))) > 0))
 );
 alter table public.catalogo_producto enable row level security;
 alter table public.catalogo_producto force row level security;
@@ -84,7 +111,10 @@ create table public.producto (
   cultivo_id uuid references public.cultivo (id),
   variedad text,
   kg_por_bolsa numeric(8, 2) check (kg_por_bolsa is null or kg_por_bolsa > 0),
+  tipo_repuesto text check (tipo_repuesto in ('cubierta', 'filtro', 'correa', 'otro')),
   modelo text,
+  rodado text,
+  notas text,
   activo boolean not null default true,
   creado_por uuid not null default app.usuario_id() references public.usuario (id),
   creado_en timestamptz not null default now(),
@@ -93,11 +123,23 @@ create table public.producto (
   check ((categoria = 'semilla') = (unidad = 'bolsa')),
   check (categoria <> 'semilla' or (kg_por_bolsa is not null and cultivo_id is not null)),
   check (categoria = 'semilla' or (kg_por_bolsa is null and cultivo_id is null and variedad is null)),
-  -- repuestos: por unidad y con su modelo (RF-19)
+  -- repuestos: por unidad, con tipo y modelo de texto libre; rodado solo en cubiertas; notas solo en repuestos (RF-19)
   check ((categoria = 'repuesto') = (unidad = 'unidad')),
-  check (categoria <> 'repuesto' or length(btrim(coalesce(modelo, ''))) > 0)
+  check ((categoria = 'repuesto') = (tipo_repuesto is not null)),
+  check (categoria <> 'repuesto' or length(btrim(coalesce(modelo, ''))) > 0),
+  check ((tipo_repuesto is not distinct from 'cubierta') = (length(btrim(coalesce(rodado, ''))) > 0)),
+  check (categoria = 'repuesto' or notas is null)
 );
-create unique index producto_nombre_uk on public.producto (establecimiento_id, lower(nombre));
+-- Insumos: el nombre no se repite. Repuestos: lo que no se repite es tipo + modelo (+ rodado),
+-- sin distinguir mayúsculas, acentos ni espacios de más; dos "Filtro de aceite" de distinto modelo conviven.
+create unique index producto_nombre_uk on public.producto (establecimiento_id, lower(nombre))
+  where categoria <> 'repuesto';
+create unique index producto_repuesto_uk on public.producto (
+  establecimiento_id, tipo_repuesto, app.normalizar(modelo), app.normalizar(rodado)
+) where categoria = 'repuesto';
+-- Cada producto del catálogo se copia una sola vez por establecimiento.
+create unique index producto_catalogo_uk on public.producto (establecimiento_id, catalogo_id)
+  where catalogo_id is not null;
 create index producto_nombre_trgm on public.producto using gin (nombre extensions.gin_trgm_ops);
 
 -- Compras (RF-04, RN-01) ---------------------------------------------------------
@@ -389,8 +431,9 @@ select app.proteger_tabla('public.movimiento_stock', p_carga => true);
 -- producto: se crea con su precio inicial; después solo se cambian nombre, variedad, modelo y si está activo.
 revoke insert, update on public.producto from micampo_app;
 grant insert (establecimiento_id, catalogo_id, nombre, categoria, unidad, precio_inicial_usd,
-              cultivo_id, variedad, kg_por_bolsa, modelo) on public.producto to micampo_app;
-grant update (nombre, variedad, modelo, activo) on public.producto to micampo_app;
+              cultivo_id, variedad, kg_por_bolsa, tipo_repuesto, modelo, rodado, notas)
+  on public.producto to micampo_app;
+grant update (nombre, variedad, notas, activo) on public.producto to micampo_app;
 
 -- compra: se carga y se anula; para corregirla se anula y se vuelve a cargar (RN-09).
 revoke insert, update on public.compra from micampo_app;
@@ -423,7 +466,74 @@ begin
 end
 $$;
 
-grant execute on function app.fijar_precio_pendiente(uuid, numeric) to micampo_app;
+-- Producto del establecimiento a partir del catálogo -------------------------------------
+-- Devuelve el producto del establecimiento para ese ítem del catálogo; si todavía no existe, lo crea
+-- copiando categoría, unidad y datos, con el precio de referencia como precio inicial.
+-- p_kg_por_bolsa: para semillas, el peso por bolsa que diga el usuario (si no, el típico del catálogo).
+create function app.producto_desde_catalogo(p_catalogo uuid, p_kg_por_bolsa numeric default null)
+returns uuid
+language plpgsql set search_path = ''
+as $$
+declare
+  v_id uuid;
+  c record;
+begin
+  select id into v_id from public.producto
+  where establecimiento_id = app.establecimiento_id() and catalogo_id = p_catalogo;
+  if v_id is not null then
+    return v_id;
+  end if;
+  select * into c from public.catalogo_producto where id = p_catalogo and activo;
+  if not found then
+    raise exception 'el producto no está en el catálogo' using errcode = '22023';
+  end if;
+  insert into public.producto
+    (establecimiento_id, catalogo_id, nombre, categoria, unidad, precio_inicial_usd,
+     cultivo_id, kg_por_bolsa, tipo_repuesto, modelo, rodado)
+  values
+    (app.establecimiento_id(), c.id, c.nombre, c.categoria, c.unidad, c.precio_referencia_usd,
+     c.cultivo_id, case when c.categoria = 'semilla' then coalesce(p_kg_por_bolsa, c.kg_por_bolsa) end,
+     c.tipo_repuesto, c.modelo, c.rodado)
+  returning id into v_id;
+  return v_id;
+end
+$$;
+
+-- Búsqueda aproximada para el bot y el desplegable (RB-06, RB-19) --------------------------
+-- Busca en los productos del establecimiento y en el catálogo (los que todavía no se copiaron),
+-- sin distinguir mayúsculas ni acentos. Para repuestos compara también tipo, modelo y rodado, así el
+-- bot ofrece la "correa 48cm" que ya existe en vez de crear "Correa 48 cm" como otro repuesto.
+create function app.buscar_productos(p_texto text, p_categoria text default null, p_limite int default 5)
+returns table (producto_id uuid, catalogo_id uuid, origen text, nombre text, categoria text,
+               tipo_repuesto text, modelo text, rodado text, similitud real)
+language sql stable set search_path = ''
+as $$
+  with candidatos as (
+    select p.id as producto_id, p.catalogo_id, 'propio'::text as origen, p.nombre, p.categoria,
+           p.tipo_repuesto, p.modelo, p.rodado
+    from public.producto p
+    where p.establecimiento_id = app.establecimiento_id() and p.activo
+    union all
+    select null, c.id, 'catalogo', c.nombre, c.categoria, c.tipo_repuesto, c.modelo, c.rodado
+    from public.catalogo_producto c
+    where c.activo and not exists (
+      select 1 from public.producto p
+      where p.establecimiento_id = app.establecimiento_id() and p.catalogo_id = c.id)
+  )
+  select producto_id, catalogo_id, origen, nombre, categoria, tipo_repuesto, modelo, rodado,
+         greatest(
+           extensions.similarity(app.normalizar(nombre), app.normalizar(p_texto)),
+           extensions.similarity(app.normalizar(concat_ws(' ', nombre, modelo, rodado)), app.normalizar(p_texto)),
+           extensions.similarity(app.normalizar(concat_ws(' ', tipo_repuesto, modelo, rodado)), app.normalizar(p_texto))
+         ) as similitud
+  from candidatos
+  where p_categoria is null or categoria = p_categoria
+  order by similitud desc, origen desc, nombre
+  limit greatest(p_limite, 1)
+$$;
+
+grant execute on function app.fijar_precio_pendiente(uuid, numeric), app.normalizar(text),
+  app.producto_desde_catalogo(uuid, numeric), app.buscar_productos(text, text, int) to micampo_app;
 
 -- PostgreSQL deja ejecutar cualquier función nueva a todos (PUBLIC). Se quita, y el backend
 -- solo ejecuta lo que se le concedió explícitamente arriba. Cada migración que crea funciones termina así.

@@ -19,6 +19,17 @@ Por defecto usa el Supabase local (`postgresql://postgres:postgres@127.0.0.1:543
 
 Si agregás una tabla y no la protegés con `app.proteger_tabla(...)`, `tests/db/test_contrato.py` falla.
 
+## Catálogo base de productos
+
+La lista vive en `supabase/catalogo/catalogo_base.csv` (se puede editar con Excel o Google Sheets). Para cargarla:
+
+```bash
+python -m micampo.catalogo ../supabase/catalogo/catalogo_base.csv            # muestra qué cambiaría
+python -m micampo.catalogo ../supabase/catalogo/catalogo_base.csv --aplicar  # lo carga
+```
+
+Por defecto carga en el Supabase local. Para la nube, definí `DATABASE_ADMIN_URL` con la conexión de administrador. El script valida todo el archivo antes de escribir, actualiza por nombre y nunca borra: lo que sale de la lista queda inactivo. Si cambiaste `pyproject.toml`, volvé a correr `pip install -e ".[dev]"`.
+
 ## Cómo usa la base el backend
 
 El backend se conecta con el rol `micampo_app` (no puede saltear RLS ni borrar cargas). Cada operación abre una transacción y fija el contexto; al terminar, el contexto desaparece solo:
