@@ -71,17 +71,16 @@ main  <──  development  <──  ramas de trabajo (una por tarea)
 
 - **main:** producción. Casi no se toca; solo recibe `development` cuando hay algo probado.
 - **development:** integración y prueba. Todo lo nuevo llega primero acá.
-- **Ramas de trabajo:** una por tarea, siempre salen de `development`, con nombre `area/descripcion`:
+- **Ramas de trabajo:** una por trabajo con peso (un módulo de base de datos con sus tests, un módulo del backend, una pantalla, el bot). Salen de `development`, pueden durar días y tener muchos commits, y entran con pull request. Nombre `area/descripcion`:
 
 | Prefijo | Para qué | Ejemplo |
 |---|---|---|
 | `backend/` | API, operaciones, bot | `backend/modulo-productos` |
 | `frontend/` | Panel web | `frontend/formulario-labores` |
-| `database/` | Migraciones y RLS | `database/tablas-acceso` |
-| `docs/` | Documentación | `docs/readme` |
+| `database/` | Migraciones y RLS | `database/labores` |
 | `fix/` | Corrección de un error | `fix/precio-promedio` |
 
-Nadie hace commit directo en `main` ni en `development`: todo entra con pull request.
+**Todo pasa por `development`.** Lo que no es código (README, documentación, la copia del diseño, el catálogo en CSV) va directo a `development`, sin rama. Lo que es código va en su rama y entra con pull request. Nada va directo a `main`.
 
 ### Paso a paso para una tarea
 
