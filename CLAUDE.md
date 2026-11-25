@@ -48,6 +48,7 @@ Python con FastAPI (API y worker del bot, mismo código), PostgreSQL en Supabase
 - Las referencias entre tablas de un establecimiento usan clave compuesta `(establecimiento_id, id)`, para que nunca crucen de un establecimiento a otro.
 - Las tablas de cargas llevan `creado_por`, `origen`, `mensaje_id` y anulación, con los valores por defecto tomados del contexto de la transacción.
 - El backend solo hace DELETE donde se concedió de forma explícita (hoy, campos y lotes). Usuarios y membresías se crean con `app.crear_usuario`, `app.crear_establecimiento` y `app.invitar_encargado`.
+- Toda migración que crea funciones en el esquema `app` termina con `revoke execute on all functions in schema app from public;` y concede a `micampo_app` solo lo necesario.
 - `backend/tests/db` debe seguir en verde. `test_contrato.py` falla si una tabla nueva queda sin proteger.
 
 **Operaciones**

@@ -305,3 +305,7 @@ $$;
 grant execute on function app.identificar_usuario(text), app.usuario_por_auth(uuid),
   app.membresias_de(uuid), app.crear_usuario(text, text, text, uuid),
   app.crear_establecimiento(uuid, text), app.invitar_encargado(text, text) to micampo_app;
+
+-- PostgreSQL deja ejecutar cualquier función nueva a todos (PUBLIC). Se quita, y el backend
+-- solo ejecuta lo que se le concedió explícitamente arriba. Cada migración que crea funciones termina así.
+revoke execute on all functions in schema app from public;

@@ -138,3 +138,7 @@ select app.proteger_tabla('public.lote', p_borrable => true);
 select app.proteger_tabla('public.ciclo');
 select app.proteger_tabla('public.desmonte', p_carga => true);
 select app.proteger_tabla('public.lluvia', p_carga => true);
+
+-- PostgreSQL deja ejecutar cualquier función nueva a todos (PUBLIC). Se quita, y el backend
+-- solo ejecuta lo que se le concedió explícitamente arriba. Cada migración que crea funciones termina así.
+revoke execute on all functions in schema app from public;

@@ -85,3 +85,7 @@ as $$
           - case when extract(month from p_fecha) < 5 then 1 else 0 end)
 $$;
 grant execute on function app.anio_agricola(date) to micampo_app;
+
+-- PostgreSQL deja ejecutar cualquier función nueva a todos (PUBLIC). Se quita, y el backend
+-- solo ejecuta lo que se le concedió explícitamente arriba. Cada migración que crea funciones termina así.
+revoke execute on all functions in schema app from public;

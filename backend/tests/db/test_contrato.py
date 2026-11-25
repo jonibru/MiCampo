@@ -83,3 +83,9 @@ def test_los_importes_no_son_de_coma_flotante(admin):
         "where table_schema = 'public' and data_type in ('real', 'double precision', 'money')",
     ):
         raise AssertionError(f"{tabla}.{columna} usa {tipo}: usar NUMERIC")
+
+
+def test_el_backend_no_ejecuta_funciones_internas(admin):
+    """Las funciones de mantenimiento (proteger tablas, auditar) no las puede llamar el backend."""
+    for funcion in ("app.proteger_tabla(regclass, boolean, boolean)", "app.auditar()", "app.ciclo_reabrir_solo_dueno()"):
+        assert not admin.execute("select has_function_privilege('micampo_app', %s, 'execute')", (funcion,)).fetchone()[0], funcion

@@ -20,7 +20,7 @@ RAIZ = pathlib.Path(__file__).resolve().parents[3]
 MIGRACIONES = sorted((RAIZ / "supabase" / "migrations").glob("*.sql"))
 STUB = pathlib.Path(__file__).with_name("stub_supabase.sql")
 ADMIN_URL = os.environ.get("TEST_ADMIN_URL", "postgresql://postgres:postgres@127.0.0.1:54322/postgres")
-PASSWORD_APP = "micampo_test"
+PASSWORD_APP = "micampo_local"  # la misma que supabase/seed.sql, para no cambiar la de tu entorno local
 
 
 def _conninfo(dbname: str, user: str | None = None, password: str | None = None) -> str:
