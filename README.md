@@ -44,6 +44,8 @@ El diseño completo está en el Google Doc "MiC - Documento de Diseño". Los req
 - [Supabase CLI](https://supabase.com/docs/guides/local-development) **3.4.0 o superior**: maneja la base local y las migraciones. En Windows se instala con [Scoop](https://scoop.sh) (`scoop install supabase`) y se actualiza con `scoop update supabase`. Verificá con `supabase --version`: las versiones viejas no leen `supabase/config.jsonc`.
 - Una cuenta de GitHub con acceso al repo (pedíselo a quien lo administra).
 
+**Vincular Claude** (si trabajás con Claude): después de crear tus cuentas e iniciar sesión, en claude.ai → Settings → Connectors conectá **GitHub** y **Supabase**. Para que Claude pueda pushear y manejar issues, además hay que instalar la app de Claude en el repo desde [github.com/apps/claude](https://github.com/apps/claude/installations/select_target) (lo hace quien administra el repo).
+
 **Clonar** es bajar una copia completa del repo a tu computadora, conectada con GitHub para poder traer y subir cambios. Se hace una sola vez:
 
 ```bash
