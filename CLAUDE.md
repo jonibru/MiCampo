@@ -79,4 +79,4 @@ Python con FastAPI (API y worker del bot, mismo código), PostgreSQL en Supabase
 
 ## Git
 
-`main` (producción, casi no se toca) ← `development` (integración) ← ramas de trabajo `area/descripcion` (`backend/`, `frontend/`, `database/`, `docs/`, `fix/`). Todo entra por pull request a `development`; nunca commitear directo en `main` ni en `development`. Una migración ya mergeada no se edita: se crea una nueva. Commits en español, citando el ID del requisito cuando corresponda.
+`main` (producción, casi no se toca) ← `development` (integración) ← ramas de trabajo `area/descripcion` (`backend/`, `frontend/`, `database/`, `docs/`, `fix/`). Todo entra por pull request a `development`; nunca commitear directo en `main` ni en `development`. **Nunca hacer push sin autorización explícita de la persona, y avisar antes de cada commit** (qué se va a commitear y en qué rama). Una migración ya mergeada no se edita: se crea una nueva. Commits en español, citando el ID del requisito cuando corresponda.
