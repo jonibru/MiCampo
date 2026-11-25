@@ -41,7 +41,7 @@ El diseño completo está en el Google Doc "MiC - Documento de Diseño". Los req
 - [Git](https://git-scm.com): guarda el historial del código y lo sincroniza con GitHub.
 - [Python 3.12 o superior](https://www.python.org): para correr el backend.
 - [Docker Desktop](https://www.docker.com/products/docker-desktop): para correr la base de datos local.
-- [Supabase CLI](https://supabase.com/docs/guides/local-development): maneja la base local y las migraciones.
+- [Supabase CLI](https://supabase.com/docs/guides/local-development) **3.4.0 o superior**: maneja la base local y las migraciones. En Windows se instala con [Scoop](https://scoop.sh) (`scoop install supabase`) y se actualiza con `scoop update supabase`. Verificá con `supabase --version`: las versiones viejas no leen `supabase/config.jsonc`.
 - Una cuenta de GitHub con acceso al repo (pedíselo a quien lo administra).
 
 **Clonar** es bajar una copia completa del repo a tu computadora, conectada con GitHub para poder traer y subir cambios. Se hace una sola vez:
