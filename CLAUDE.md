@@ -43,6 +43,13 @@ Python con FastAPI (API y worker del bot, mismo código), PostgreSQL en Supabase
 - El stock es la suma de movimientos (`movimiento_stock`, `movimiento_grano`), no una columna. Puede quedar negativo: se permite, se avisa y se marca para revisar (RN-32).
 - Un cambio de valores de referencia crea una fila nueva; no se pisa la anterior.
 
+**Base de datos: convenciones ya implementadas (supabase/migrations)**
+- Toda tabla de un establecimiento se protege al crearla con `select app.proteger_tabla('public.tabla', p_carga => ..., p_borrable => ...)`: RLS forzado, permisos mínimos para `micampo_app` y trigger de auditoría. No se escribe a mano.
+- Las referencias entre tablas de un establecimiento usan clave compuesta `(establecimiento_id, id)`, para que nunca crucen de un establecimiento a otro.
+- Las tablas de cargas llevan `creado_por`, `origen`, `mensaje_id` y anulación, con los valores por defecto tomados del contexto de la transacción.
+- El backend solo hace DELETE donde se concedió de forma explícita (hoy, campos y lotes). Usuarios y membresías se crean con `app.crear_usuario`, `app.crear_establecimiento` y `app.invitar_encargado`.
+- `backend/tests/db` debe seguir en verde. `test_contrato.py` falla si una tabla nueva queda sin proteger.
+
 **Operaciones**
 - Cada carga es una sola transacción: completa o no se ejecuta (RNF-01).
 - Idempotencia: el mismo id de mensaje de WhatsApp no genera dos cargas (RB-02).

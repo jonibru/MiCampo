@@ -59,6 +59,8 @@ supabase start        # Postgres, Auth y Storage locales
 supabase db reset     # aplica todas las migraciones desde cero
 ```
 
+La primera vez, corré `supabase init` (decí que no a las preguntas del editor) para crear `supabase/config.toml`. Los tests de la base están explicados en `backend/README.md`.
+
 ## Cómo trabajamos con git
 
 ```

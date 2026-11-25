@@ -1,0 +1,12 @@
+[project]
+name = "micampo-backend"
+version = "0.1.0"
+description = "Backend de Mi Campo (API, operaciones y bot)"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "psycopg[binary]>=3.2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
