@@ -2,7 +2,7 @@
 from helpers import filas
 
 TABLAS_PUBLIC = "select c.oid, c.relname from pg_class c where c.relkind = 'r' and c.relnamespace = 'public'::regnamespace"
-TABLAS_GLOBALES = {"cultivo"}  # sin establecimiento_id: solo lectura para el backend
+TABLAS_GLOBALES = {"cultivo", "catalogo_producto"}  # sin establecimiento_id: solo lectura para el backend
 
 
 def test_todas_las_tablas_tienen_rls_forzado(admin):
@@ -89,3 +89,29 @@ def test_el_backend_no_ejecuta_funciones_internas(admin):
     """Las funciones de mantenimiento (proteger tablas, auditar) no las puede llamar el backend."""
     for funcion in ("app.proteger_tabla(regclass, boolean, boolean)", "app.auditar()", "app.ciclo_reabrir_solo_dueno()"):
         assert not admin.execute("select has_function_privilege('micampo_app', %s, 'execute')", (funcion,)).fetchone()[0], funcion
+
+
+def test_las_vistas_respetan_el_rls_de_quien_consulta(admin):
+    """Una vista sin security_invoker leería con los permisos de su dueño y saltearía el RLS."""
+    for nombre, opciones in filas(
+        admin, "select relname, coalesce(reloptions, '{}') from pg_class where relkind = 'v' and relnamespace = 'public'::regnamespace"
+    ):
+        assert "security_invoker=true" in opciones, f"{nombre}: falta security_invoker"
+
+
+def test_anon_y_authenticated_no_ven_las_vistas(admin):
+    for (oid,) in filas(admin, "select oid from pg_class where relkind = 'v' and relnamespace = 'public'::regnamespace"):
+        for rol in ("anon", "authenticated"):
+            assert not admin.execute("select has_table_privilege(%s, %s, 'select')", (rol, oid)).fetchone()[0]
+
+
+def test_toda_tabla_de_cargas_aplica_las_reglas_de_carga(admin):
+    for (tabla,) in filas(
+        admin,
+        "select table_name from information_schema.columns where table_schema = 'public' and column_name = 'anulada_en'",
+    ):
+        hay = admin.execute(
+            "select count(*) from pg_trigger t join pg_proc p on p.oid = t.tgfoid "
+            "where t.tgrelid = ('public.' || %s)::regclass and p.proname = 'reglas_carga'", (tabla,)
+        ).fetchone()[0]
+        assert hay == 1, f"{tabla}: falta el trigger app.reglas_carga"

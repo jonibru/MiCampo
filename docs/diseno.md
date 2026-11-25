@@ -1,4 +1,4 @@
-> **Copia de solo lectura.** La fuente de verdad es el Google Doc [MiC - Documento de Diseño](https://docs.google.com/document/d/1aVzFFHTz8UpFb6uz9HPc7R_-zppUurh4wddaSe1antg). Copia exportada el 25 de noviembre de 2026 (versión del documento: 17 de noviembre). No se edita acá: los cambios se hacen en el Doc y esta copia se vuelve a exportar (File → Download → Markdown).
+> **Copia de solo lectura.** La fuente de verdad es el Google Doc [MiC - Documento de Diseño](https://docs.google.com/document/d/1aVzFFHTz8UpFb6uz9HPc7R_-zppUurh4wddaSe1antg). Copia exportada el 25 de noviembre de 2026, después de sumar la unidad de repuestos y las categorías de producto. No se edita acá: los cambios se hacen en el Doc y esta copia se vuelve a exportar (File → Download → Markdown).
 
 # **Mi Campo: documento de diseño**
 
@@ -93,7 +93,7 @@ Todos los valores de referencia siguen el mismo patrón: se cargan al dar de alt
 | RN-11 | Labores | El costo operativo de una labor es el precio de referencia del servicio para ese tipo de labor × ha, sea propia o contratada; con "contraté servicio" se puede cargar el costo real. Toda pulverización tiene equipo: mosquito por defecto, o dron o avión solo si el usuario lo dice explícitamente; la confirmación siempre muestra el equipo. Una pulverización propia solo puede usar equipos que el establecimiento tiene (por defecto, solo mosquito); si no, el bot pregunta si fue contratada. El combustible no se calcula por ahora | Notas | Vigente |
 | RN-12 | Lotes | Cada lote tiene ha limpias y ha de monte (las totales son la suma); labores, costos por ha, rinde y márgenes usan solo ha limpias. Cada ciclo guarda las ha limpias que tenía, para que un desmonte posterior no cambie márgenes pasados | Notas | Vigente |
 | RN-13 | Productos | Las semillas se cuentan en bolsas con un peso promedio por bolsa. La dosis de siembra se carga en kg/ha (soja, trigo) o bolsas/ha (girasol, maíz) y el sistema convierte con ese peso | Notas | Vigente |
-| RN-14 | Productos | La unidad (litros o kilos; bolsas para semillas) se elige al crear el producto y todas sus cargas se hacen en esa unidad. Dos concentraciones del mismo principio activo son dos productos distintos | Notas | Vigente |
+| RN-14 | Productos | La unidad (litros o kilos; bolsas para semillas; unidades para repuestos) se elige al crear el producto y todas sus cargas se hacen en esa unidad. Dos concentraciones del mismo principio activo son dos productos distintos. Categorías: herbicida, insecticida, fungicida, coadyuvante, fertilizante, semilla, repuesto u otro | Notas | Vigente |
 | RN-15 | Costos del establecimiento | Sueldos, viáticos, mantenimiento (repuestos usados), fletes, desmontes y otros gastos son costos del establecimiento: no entran en el costo de una labor ni en el margen por lote | Notas | Vigente |
 | RN-16 | Moneda | El tipo de cambio se descarga 2 veces por día y se usa el vigente a la fecha de la carga. Es el dólar divisa (mayorista), el mismo para todos los establecimientos | Notas | Vigente |
 | RN-17 | Labores | Una carpida la hacen uno o más temporales pagados por hora: costo \= personas × días × horas por día × pago por hora; es costo de la labor y del lote | Notas | Vigente |
@@ -143,7 +143,7 @@ Cada carga que acepta el bot también se puede hacer en el panel web, con las mi
 | :---- | :---- | :---- | :---- | :---- |
 | RF-01 | Campos y lotes | Crear, editar y listar campos y lotes con ha limpias y ha de monte (las totales son la suma) | App, Notas | Piloto 1 |
 | RF-02 | Campos y lotes | Registrar un desmonte: pasa ha de monte a limpias y carga su costo al establecimiento | Notas | Piloto 1 |
-| RF-03 | Productos y stock | Agregar un producto al establecimiento (del catálogo o propio) con categoría, unidad (litros, kilos o bolsas) y precio promedio; si no se sabe el precio, queda pendiente para el dueño | Notas | Piloto 1 |
+| RF-03 | Productos y stock | Agregar un producto al establecimiento (del catálogo o propio) con categoría, unidad (litros, kilos, bolsas o unidades) y precio promedio; si no se sabe el precio, queda pendiente para el dueño | Notas | Piloto 1 |
 | RF-04 | Productos y stock | Registrar la compra de un producto existente: suma stock, usa el precio si se dice y, si no, el promedio; si el producto no existe, ofrece agregarlo primero | Notas | Piloto 1 |
 | RF-05 | Productos y stock | Recalcular el precio promedio con cada compra que trae precio | App, Notas | Piloto 1 |
 | RF-06 | Productos y stock | Cargar semillas por cultivo y variedad, en bolsas con peso promedio por bolsa | Notas | Piloto 1 |
@@ -329,7 +329,7 @@ modelo de datos · 28 tablas en 8 grupos
 | Tabla | Campos principales | Notas |
 | :---- | :---- | :---- |
 | catalogo\_producto | nombre, categoría, unidad, principio activo, concentración, modelo (repuestos), precio de referencia | Global; lo mantiene el administrador |
-| producto | catálogo (si viene de ahí), nombre, categoría, unidad (l, kg o bolsa), precio promedio (o pendiente), cultivo, variedad, kg por bolsa, modelo (repuestos) | Uno por establecimiento; cada concentración es un producto |
+| producto | catálogo (si viene de ahí), nombre, categoría, unidad (l, kg, bolsa o unidad), precio promedio (o pendiente), cultivo, variedad, kg por bolsa, modelo (repuestos) | Uno por establecimiento; cada concentración es un producto |
 | compra | fecha, proveedor, total en US\$, monto en ARS, tipo de cambio | Suma stock al producto |
 | compra\_item | compra, producto, cantidad, precio unitario (vacío si no se dijo) |  |
 | movimiento\_stock | producto, fecha, cantidad (+ entra, − sale), precio unitario, origen (compra, labor, uso de repuesto, ajuste, anulación) | El stock es la suma de movimientos; puede quedar negativo con aviso |
@@ -524,6 +524,7 @@ Lo decidido, con el porqué, para no volver a discutirlo; abajo, lo que sigue ab
 | Nov 2026 | La venta se carga en toneladas con el precio bruto por tonelada; el secado no se calcula por ahora y los costos (flete) quedan en plata | Lo que más importa de la venta son las toneladas, que el usuario cotiza cuando quiere; el descuento por secado varía por acopio |
 | Nov 2026 | Repuestos: solo stock por modelo (las compras suman y el uso descuenta); el uso por máquina va con el módulo de maquinaria | Al cliente le interesa saber cuántos filtros, cubiertas y correas tiene; la maquinaria queda para más adelante |
 | Nov 2026 | En la app solo se registran ventas; cualquier otra salida de grano es un ajuste de stock (kilos, ubicación y motivo opcional, sin precio), que no cuenta como ingreso | El rinde sale de la cosecha completa y el stock coincide con lo que hay en el campo, sin cargar en la app ventas que el productor no quiere registrar; el mismo ajuste sirve para merma, consumo propio y pérdidas |
+| Nov 2026 | Los repuestos usan la unidad "unidad"; las categorías de producto son herbicida, insecticida, fungicida, coadyuvante, fertilizante, semilla, repuesto u otro | Los repuestos se cuentan por pieza ("cambié 2 filtros"), y una lista fija de categorías permite validar y filtrar sin configuración extra |
 
 ## **Preguntas abiertas**
 
