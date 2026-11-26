@@ -570,26 +570,45 @@ def test_una_compra_sin_precio_no_completa_los_insumos(app, m):
 
 # Quién ve costos (RB-18) ---------------------------------------------------------------------------------
 
-def test_el_encargado_ve_costos_solo_si_el_dueno_lo_habilita(app, m):
-    puede = lambda: uno(app, "select app.puede_ver_costos()")  # noqa: E731
+def test_el_dueno_elige_que_ven_los_encargados(app, m):
+    vis = lambda: uno(app, "select app.visibilidad()")  # noqa: E731
     ctx(app, m["encargado"], m["est"])
-    assert puede() is False
-    assert app.execute("update establecimiento set encargado_ve_costos = true where id = %s", (m["est"],)).rowcount == 0
+    assert vis() == "sin_costos"                                    # por defecto (RB-18)
+    assert app.execute("update establecimiento set visibilidad_encargado = 'todo' where id = %s", (m["est"],)).rowcount == 0
     ctx(app, m["dueno"], m["est"])
-    assert puede() is True
-    app.execute("update establecimiento set encargado_ve_costos = true where id = %s", (m["est"],))
-    ctx(app, m["encargado"], m["est"])
-    assert puede() is True
+    assert vis() == "todo"                                          # el dueño ve todo siempre
+    for nivel in ("costos", "todo", "sin_costos"):
+        ctx(app, m["dueno"], m["est"])
+        app.execute("update establecimiento set visibilidad_encargado = %s where id = %s", (nivel, m["est"]))
+        ctx(app, m["encargado"], m["est"])
+        assert vis() == nivel
+    ctx(app, m["dueno"], m["est"])
+    falla(app, psycopg.errors.CheckViolation,
+          "update establecimiento set visibilidad_encargado = 'margenes' where id = %s", m["est"])
 
 
-def test_ver_costos_no_se_pasa_a_otro_establecimiento(app, admin):
+def test_lo_que_ve_el_encargado_no_se_pasa_a_otro_establecimiento(app, admin):
     a, b = crear_establecimiento(admin, "Costos A"), crear_establecimiento(admin, "Costos B")
     ctx(app, a["dueno"], a["est"])
-    app.execute("update establecimiento set encargado_ve_costos = true where id = %s", (a["est"],))
+    app.execute("update establecimiento set visibilidad_encargado = 'todo' where id = %s", (a["est"],))
     ctx(app, b["encargado"], b["est"])
-    assert uno(app, "select app.puede_ver_costos()") is False
+    assert uno(app, "select app.visibilidad()") == "sin_costos"
     ctx(app, b["encargado"], a["est"])              # no es miembro de A
-    assert uno(app, "select app.puede_ver_costos()") is False
+    assert uno(app, "select app.visibilidad()") == "sin_costos"
+
+
+def test_un_costo_incompleto_se_completa_aunque_el_ciclo_este_cerrado(app, m):
+    """Completar un dato que faltaba no es cargar una labor: RN-10 lo permite aunque el ciclo esté cerrado."""
+    ctx(app, m["dueno"], m["est"])
+    nuevo = producto(app, m, "Herbicida nuevo")
+    lab = labor(app, m, "disco", "2026-10-01", ha=10)
+    li = insumo(app, m, lab, nuevo, dosis=1, unidad="l")
+    app.execute("update ciclo set estado = 'cerrado', fecha_cierre = '2026-12-01' where id = %s", (ciclo(app, lab)["id"],))
+    ref(app, m, "servicio_labor", 15, tipo_labor="disco")
+    app.execute("select app.fijar_precio_pendiente(%s, 6)", (nuevo,))
+    f = fila(app, "labor", lab)
+    assert (f["costo_servicio_usd"], f["costo_insumos_usd"], f["costo_incompleto"]) == (150, 60, False)
+    assert fila(app, "labor_insumo", li)["costo_usd"] == 60
 
 
 # Carpida y "otra" (RN-17, RF-27) ------------------------------------------------------------------------

@@ -16,7 +16,20 @@
 --   * Si falta un valor (de referencia o el precio de un insumo), la labor queda con "costo incompleto". Cuando
 --     aparece el valor, todas las líneas incompletas lo toman y quedan fijas (excepción de RN-10, con auditoría):
 --     al cargar el valor de referencia, al fijar el dueño un precio pendiente o al llegar una compra con precio.
---   * El dueño elige si los encargados de su establecimiento ven costos (por defecto, no: RB-18).
+--   * El dueño elige qué ven los encargados de su establecimiento: sin costos (por defecto, RB-18), solo costos
+--     (de labores, insumos y compras) o todo (además márgenes, utilidad y ventas). Vale para todos sus encargados.
+--
+-- AVISO: esta migración cambia cosas creadas en 20261125140000_productos_stock.sql. La versión vigente es la de acá.
+--   Funciones que reemplaza (create or replace):
+--     app.fijar_precio_pendiente          además completa las líneas de labor cargadas sin precio
+--     app.compra_item_despues_de_insertar además, si la compra trae precio, completa las líneas sin precio
+--     app.movimiento_antes_de_insertar    además, los movimientos de labor solo los genera la carga de insumos
+--     app.movimiento_antes_de_actualizar  además, un movimiento de labor solo se anula anulando la labor
+--   Otros cambios en tablas anteriores:
+--     compra            el tipo de cambio en pesos lo completa el sistema (nuevo trigger) y la fuente ya no la
+--                       escribe el backend
+--     movimiento_stock  clave foránea y unicidad de labor_insumo_id; el backend ya no lo escribe
+--     establecimiento   nueva columna visibilidad_encargado
 
 -- Tipo de cambio (RN-01, RN-16, RF-21): global, dólar divisa mayorista ---------------------------
 create table public.tipo_cambio (
@@ -89,7 +102,8 @@ insert into public.tipo_labor (codigo, nombre, equipo, costeo) values
   ('disco', 'Disco', null, 'por_ha'),
   ('rastra_cadena', 'Rastra cadena', null, 'por_ha'),
   ('rolo_picador', 'Rolo picador', null, 'por_ha'),
-  ('carpida', 'Carpida', null, 'temporales'),
+  -- "Carpida manual" (temporales) para no confundirla con "Carpidor" (el implemento) en un audio.
+  ('carpida', 'Carpida manual', null, 'temporales'),
   ('otra', 'Otra', null, 'temporales');
 
 -- Valores de referencia (RN-29): por establecimiento. Un cambio es una fila nueva; nunca se pisa la anterior.
@@ -845,17 +859,27 @@ $$;
 
 revoke insert (labor_insumo_id) on public.movimiento_stock from micampo_app;
 
--- Quién ve costos (RB-18): el dueño siempre; los encargados, solo si el dueño lo habilitó en su establecimiento.
--- Lo cambia solo el dueño (la política de establecimiento ya lo exige). El bot y el panel lo consultan
--- antes de mostrar costos totales, márgenes, utilidad o ventas.
-alter table public.establecimiento add column encargado_ve_costos boolean not null default false;
-grant update (encargado_ve_costos) on public.establecimiento to micampo_app;
+-- Qué ven los encargados (RB-18): el dueño elige para todos los encargados de su establecimiento.
+--   sin_costos  solo cantidades, nunca importes (por defecto)
+--   costos      además los costos: de labores, insumos y compras
+--   todo        además márgenes, utilidad y ventas
+-- El dueño ve todo siempre. Lo cambia solo el dueño (la política de establecimiento ya lo exige). El bot y el
+-- panel consultan app.visibilidad() antes de armar cada respuesta.
+alter table public.establecimiento add column visibilidad_encargado text not null default 'sin_costos'
+  check (visibilidad_encargado in ('sin_costos', 'costos', 'todo'));
+grant update (visibilidad_encargado) on public.establecimiento to micampo_app;
 
-create function app.puede_ver_costos() returns boolean
+-- Lo que puede ver la persona del contexto: 'todo' para el dueño, lo elegido para el encargado,
+-- 'sin_costos' para quien no es miembro.
+create function app.visibilidad() returns text
 language sql stable security definer set search_path = ''
 as $$
-  select app.es_dueno() or (app.es_miembro() and exists (
-    select 1 from public.establecimiento e where e.id = app.establecimiento_id() and e.encargado_ve_costos))
+  select case
+    when app.es_dueno() then 'todo'
+    when app.es_miembro() then (select e.visibilidad_encargado from public.establecimiento e
+                                where e.id = app.establecimiento_id())
+    else 'sin_costos'
+  end
 $$;
 
 -- Protección: RLS forzado, auditoría y permisos mínimos --------------------------------------------
@@ -891,7 +915,7 @@ grant insert (establecimiento_id, labor_id, personas, dias, horas_dia, pago_hora
 grant execute on function app.tipo_cambio_vigente(date),
   app.valor_referencia_vigente(text, date, uuid, uuid, integer),
   app.nombre_ciclo(uuid), app.ciclo_para_labor(uuid, date, uuid),
-  app.labor_admite_agregados(uuid), app.puede_ver_costos() to micampo_app;
+  app.labor_admite_agregados(uuid), app.visibilidad() to micampo_app;
 
 -- PostgreSQL deja ejecutar cualquier función nueva a todos (PUBLIC). Se quita, y el backend
 -- solo ejecuta lo que se le concedió explícitamente arriba. Cada migración que crea funciones termina así.
