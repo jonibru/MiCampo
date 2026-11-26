@@ -1,4 +1,4 @@
-> **Copia de solo lectura.** La fuente de verdad es el Google Doc [MiC - Documento de Diseño](https://docs.google.com/document/d/1aVzFFHTz8UpFb6uz9HPc7R_-zppUurh4wddaSe1antg). Copia exportada el 25 de noviembre de 2026, con las decisiones sobre catálogo precargado y repuestos. No se edita acá: los cambios se hacen en el Doc y esta copia se vuelve a exportar (File → Download → Markdown).
+> **Copia de solo lectura.** La fuente de verdad es el Google Doc [MiC - Documento de Diseño](https://docs.google.com/document/d/1aVzFFHTz8UpFb6uz9HPc7R_-zppUurh4wddaSe1antg). Copia exportada el 26 de noviembre de 2026, con las decisiones de labores, ciclos, costos y permisos del encargado. No se edita acá: los cambios se hacen en el Doc y esta copia se vuelve a exportar (File → Download → Markdown).
 
 # **Mi Campo: documento de diseño**
 
@@ -26,7 +26,7 @@ Mi Campo se rearma desde cero sobre PostgreSQL con un backend propio. Casi toda 
 | Bot | Vía principal (cerca del 100 %) para cargar y consultar; confirma una carga por vez | Decidido |
 | Panel web | Consulta, corrección y carga manual | Decidido |
 | Offline | No hace falta, porque el bot ya requiere internet | Decidido |
-| Roles | Dueño (todo) y encargado (carga, consulta cargas y ve precios de referencia, pero no costos totales, márgenes ni ventas); un establecimiento por usuario en el piloto | Decidido |
+| Roles | Dueño (todo) y encargado (carga, consulta cargas y ve precios de referencia; costos, márgenes y ventas solo si el dueño lo habilita); un establecimiento por usuario en el piloto | Decidido |
 | Cosecha y granos | La cosecha registra solo los kilos producidos; el stock de granos (bolsón y acopios), los envíos y las ventas van aparte | Decidido |
 | Campaña | Grano más año agrícola de la siembra (mayo a abril), por ejemplo Soja 2026/27 | Decidido |
 | Fiabilidad | Cada carga es una transacción completa; el bot debe tolerar audios imperfectos | Decidido |
@@ -39,12 +39,12 @@ Mi Campo se rearma desde cero sobre PostgreSQL con un backend propio. Casi toda 
 
 ## **2\. Actores y roles**
 
-Hay dos roles de usuario: el dueño hace todo; el encargado carga datos, consulta las cargas y ve precios de referencia, pero no ve costos totales, márgenes, utilidad ni ventas. Las reglas finas se definen más adelante. En el piloto, cada usuario tiene un solo establecimiento.
+Hay dos roles de usuario: el dueño hace todo; el encargado carga datos, consulta las cargas y ve precios de referencia. Qué más ve el encargado lo elige el dueño, para todos los encargados de su establecimiento: sin costos (por defecto), solo costos (de labores, insumos y compras) o todo (además márgenes, utilidad y ventas). En el piloto, cada usuario tiene un solo establecimiento.
 
 | Actor | Qué puede hacer | Cómo accede | Origen |
 | :---- | :---- | :---- | :---- |
 | Dueño | Carga, consulta, corrige y anula datos; ve stock, costos, márgenes y ventas; configura valores de referencia; da de alta y de baja encargados; reabre ciclos cerrados | WhatsApp y panel web | App, Notas |
-| Encargado | Carga cualquier dato, incluidos productos nuevos y cosechas; consulta cargas y stock; ve precios de referencia; corrige solo sus propias cargas y hace ajustes de stock; no ve costos totales por lote, márgenes, utilidad ni ventas | WhatsApp y panel web (sin costos totales ni ventas) | Notas |
+| Encargado | Carga cualquier dato, incluidos productos nuevos y cosechas; consulta cargas y stock; ve precios de referencia; corrige solo sus propias cargas y hace ajustes de stock; ve costos, márgenes, utilidad y ventas según lo que habilite el dueño (por defecto, sin costos) | WhatsApp y panel web (sin costos totales ni ventas) | Notas |
 | Bot de WhatsApp | Recibe el audio, propone la carga o responde la consulta, pide confirmación y ejecuta tras el "Sí" | Número de WhatsApp Business | Notas |
 | Administrador de plataforma (vos) | Revisa las trazas del bot, mantiene el catálogo base con sus precios de referencia y mide la calidad; cada ingreso a los datos de un establecimiento queda registrado | Vista de administración interna | Propuesta |
 
@@ -54,7 +54,7 @@ Los empleados (mensuales o temporales) son datos que se cargan, no usuarios del 
 
 * Cada dato pertenece a un establecimiento; un usuario accede solo a los establecimientos en los que tiene un rol (en el piloto, uno).  
 * El bot identifica a la persona por su número de teléfono registrado; un número desconocido no ejecuta cargas. Si el dueño da de baja un número, el acceso se corta en el momento.  
-* Al encargado, el bot le responde consultas sobre cargas, stock y precios de referencia, pero no sobre costos totales, márgenes, utilidad ni ventas.  
+* Al encargado, el bot le responde consultas sobre cargas, stock y precios de referencia, y sobre costos, márgenes, utilidad y ventas solo según lo que habilitó el dueño.  
 * Toda carga guarda quién la hizo; el dueño ve el historial completo (RF-38).  
 * Más adelante, una persona podrá ser dueña de un establecimiento y encargada en otro; el bot usará el último establecimiento con el que trabajó y lo mostrará en cada confirmación.  
 * Acceso al panel con cuenta propia, requisitos de contraseña y pantalla separada para crear cuenta (Notas).
@@ -82,21 +82,21 @@ Todos los valores de referencia siguen el mismo patrón: se cargan al dar de alt
 | ID | Tema | Regla | Origen | Estado |
 | :---- | :---- | :---- | :---- | :---- |
 | RN-01 | Moneda | Los importes se guardan en US\$, con el monto original en ARS, el tipo de cambio y su fuente (automático o manual) | App | Vigente |
-| RN-02 | Ciclo | Cada lote tiene un ciclo por cultivo y un solo ciclo abierto a la vez. El ciclo empieza en preparación con la primera labor del lote (por ejemplo, un barbecho); si ya se sabe qué se va a sembrar, se puede indicar el cultivo desde ahí, y la siembra lo fija junto con la campaña. Si se carga la siembra de un cultivo nuevo con otro ciclo abierto, el bot pregunta si terminó la cosecha anterior y lo cierra. El ciclo se cierra cuando el usuario avisa que terminó de cosechar y lo que se carga después va al ciclo siguiente. Una labor va al ciclo según su fecha; si ese ciclo está cerrado, el bot avisa y solo el dueño puede reabrirlo. Un ciclo cerrado no acepta labores, pero sí cosechas | Notas | Vigente |
+| RN-02 | Ciclo | Cada lote tiene un ciclo por cultivo y un solo ciclo abierto a la vez. El ciclo empieza en preparación con la primera labor del lote (el barbecho es esta etapa, no un tipo de labor); si ya se sabe qué se va a sembrar, se puede indicar el cultivo desde ahí. La siembra fija cultivo y campaña; si el ciclo está en preparación con otro cultivo planeado, la siembra lo reemplaza. Si está abierto con otro cultivo, la base rechaza la siembra: el bot pregunta si terminó la cosecha, cierra el lote y vuelve a cargar la siembra. Anular la única siembra de un ciclo lo devuelve a "en preparación", sin cultivo ni campaña. El ciclo se cierra con la operación "cerrar lote", que hace el usuario (dueño o encargado) cuando avisa que terminó de cosechar, o el bot en el caso anterior; la fecha de cierre no puede ser anterior a la última labor del ciclo. Una labor va al ciclo según su fecha: las labores con fecha del cierre en adelante, cargadas después de cerrar, van al ciclo siguiente, y las cosechas de ese día, al que se cierra. Una labor anterior al inicio del ciclo abierto corre el inicio para atrás, pero nunca antes del cierre del ciclo anterior; si cae antes, se rechaza por ciclo cerrado. En un ciclo cerrado no se cargan labores, no se anulan ni se les agregan insumos; sí se aceptan cosechas y se completan los costos incompletos. Solo el dueño reabre un ciclo, y solo si el lote no tiene otro ciclo abierto | Notas | Vigente |
 | RN-03 | Productos | Al agregar un producto al establecimiento se cargan su unidad y su precio promedio (el del catálogo o el que diga el usuario). Los repuestos (cubiertas, filtros, correas) también son productos, identificados por su modelo; al usarse descuentan stock y su costo va a mantenimiento | Notas | Vigente |
 | RN-04 | Productos | En las compras el precio es opcional: si se dice, el promedio se actualiza (ponderado); si no, se mantiene el vigente. Si el stock está en 0 o negativo al cargar la compra, el promedio pasa a ser el precio de esa compra. El promedio se calcula a partir de los movimientos de stock, que guardan su precio (ver Notas a tener en cuenta) | Notas, App | Vigente |
 | RN-05 | Cosecha | Los kilos se cargan como se pesaron y pueden no coincidir con el destino. Si se carga la humedad, la merma (humedad base: soja 13,5; maíz 14,5; trigo 14; girasol 11; sorgo 15; cebada 12,5; algodón sin merma) es solo informativa | App, Notas | Vigente |
 | RN-07 | Integridad | No se puede borrar un registro que esté en uso | App | Vigente |
 | RN-08 | Envíos | Si se carga la carta de porte, se avisa cuando está duplicada | App | Vigente |
 | RN-09 | Integridad | Relaciones por id, no por nombre; ninguna carga se borra: se anula (también una cosecha mal cargada), revierte su efecto en stock y costos, y queda registro de quién y cuándo | Propuesta | Vigente |
-| RN-10 | Labores | El costo de cada carga (servicio, insumos, embolsado, flete, al valor del momento) se calcula y se guarda al cargarla; un cambio posterior de valores no altera costos pasados. Excepción: si un producto tenía el precio pendiente, cuando el dueño lo fija se recalculan solo las líneas que se cargaron sin precio, con registro en la auditoría; hasta entonces la carga se muestra con "costo incompleto" | Propuesta | Vigente |
-| RN-11 | Labores | El costo operativo de una labor es el precio de referencia del servicio para ese tipo de labor × ha, sea propia o contratada; con "contraté servicio" se puede cargar el costo real. Toda pulverización tiene equipo: mosquito por defecto, o dron o avión solo si el usuario lo dice explícitamente; la confirmación siempre muestra el equipo. Una pulverización propia solo puede usar equipos que el establecimiento tiene (por defecto, solo mosquito); si no, el bot pregunta si fue contratada. El combustible no se calcula por ahora | Notas | Vigente |
+| RN-10 | Labores | El costo de cada carga (servicio, insumos, embolsado, flete, al valor del momento) se calcula y se guarda al cargarla; un cambio posterior de valores no altera costos pasados. Excepción: una carga con "costo incompleto" (sin precio de un insumo o sin valor de referencia) se completa con lo primero que aparezca: el precio que fija el dueño, una compra con precio o un valor de referencia nuevo. Se recalculan solo las líneas incompletas, con registro en la auditoría, y después el costo queda fijo | Propuesta | Vigente |
+| RN-11 | Labores | El costo operativo de una labor es el precio de referencia del servicio para ese tipo de labor × ha, sea propia o contratada; el costo real se carga solo si la labor fue contratada ("contraté servicio"), por hectárea o total, en dólares o en pesos; la carpida manual y la labor "otra" siguen RN-17. Toda pulverización tiene equipo: mosquito por defecto, o dron o avión solo si el usuario lo dice explícitamente; la confirmación siempre muestra el equipo. Una pulverización propia solo puede usar equipos que el establecimiento tiene (por defecto, solo mosquito); si no, el bot pregunta si fue contratada. El combustible no se calcula por ahora | Notas | Vigente |
 | RN-12 | Lotes | Cada lote tiene ha limpias y ha de monte (las totales son la suma); labores, costos por ha, rinde y márgenes usan solo ha limpias. Cada ciclo guarda las ha limpias que tenía, para que un desmonte posterior no cambie márgenes pasados | Notas | Vigente |
 | RN-13 | Productos | Las semillas se cuentan en bolsas con un peso promedio por bolsa. La dosis de siembra se carga en kg/ha (soja, trigo) o bolsas/ha (girasol, maíz) y el sistema convierte con ese peso | Notas | Vigente |
 | RN-14 | Productos | La unidad (litros o kilos; bolsas para semillas; unidades para repuestos) se elige al crear el producto y todas sus cargas se hacen en esa unidad. Dos concentraciones del mismo principio activo son dos productos distintos. Categorías: herbicida, insecticida, fungicida, coadyuvante, fertilizante, semilla, repuesto u otro | Notas | Vigente |
 | RN-15 | Costos del establecimiento | Sueldos, viáticos, mantenimiento (repuestos usados), fletes, desmontes y otros gastos son costos del establecimiento: no entran en el costo de una labor ni en el margen por lote | Notas | Vigente |
-| RN-16 | Moneda | El tipo de cambio se descarga 2 veces por día y se usa el vigente a la fecha de la carga. Es el dólar divisa (mayorista), el mismo para todos los establecimientos | Notas | Vigente |
-| RN-17 | Labores | Una carpida la hacen uno o más temporales pagados por hora: costo \= personas × días × horas por día × pago por hora; es costo de la labor y del lote | Notas | Vigente |
+| RN-16 | Moneda | El tipo de cambio se descarga 2 veces por día y se usa el vigente a la fecha de la carga. Es el dólar divisa (mayorista), el mismo para todos los establecimientos; lo cargan solo el administrador o la descarga automática. Las compras y las labores en pesos lo toman solas, salvo que se diga otro (queda como manual) | Notas | Vigente |
+| RN-17 | Labores | La carpida manual y la labor "otra" se costean de una de tres formas: con temporales (costo \= personas × días × horas por día × pago por hora), con un costo dicho o como hechas por personal propio (servicio en cero, porque ya está en el sueldo). Si no hay nada de eso, quedan con "costo incompleto". Es costo de la labor y del lote. "Otra" lleva una descripción. La carpida manual (temporales) y el carpidor (implemento) son labores distintas | Notas | Vigente |
 | RN-18 | Lotes | Un desmonte pasa ha de monte a limpias; su costo (\~US\$2000/ha) va solo al resultado del establecimiento, no al margen del lote | Notas | Vigente |
 | RN-20 | Cosecha | La cosecha registra solo los kilos producidos por un ciclo, tal como se pesaron (humedad opcional), y a dónde fueron: al bolsón del grano o directo a un acopio. De ahí sale el rinde. Si va al bolsón, el costo de embolsar se suma al ciclo en ese momento | Notas | Vigente |
 | RN-22 | Márgenes | Margen por ciclo \= producción × precio de referencia vigente − (insumos \+ costo operativo de labores \+ carpidas \+ embolsado), sobre las ha limpias del ciclo. El resultado del establecimiento suma las ventas reales y el stock no vendido a precio de referencia, y resta los costos de producción y los del establecimiento | Notas | Vigente |
@@ -104,24 +104,27 @@ Todos los valores de referencia siguen el mismo patrón: se cargan al dar de alt
 | RN-24 | Ingresos | Lo vendido vale su precio de venta bruto, sin descontar secado (ingreso real). Lo no vendido, en el bolsón o en un acopio, vale kg × el último precio de referencia vigente del grano, sin importar la campaña (ingreso proyectado), sin restar fletes futuros ni merma | Notas | Vigente |
 | RN-25 | Costos | Un costo cuenta cuando se carga, sin importar si está pagado: no se modelan caja, cheques ni cuentas corrientes | Notas | Vigente |
 | RN-27 | Envíos | Cada envío lleva una cantidad de camiones (1 por defecto); su flete (US\$ por camión) se cuenta como costo del establecimiento en el momento del envío. Los datos del camión (patente, carta de porte, kilos brutos y tara) son opcionales | Notas | Vigente |
-| RN-29 | Valores de referencia | Se cargan al dar de alta el establecimiento. Cuando arranca la cosecha de un grano en una campaña, el dueño recibe un aviso para actualizar precio del grano, flete y embolsado. Después se usan solos; el dueño los cambia cuando quiere y cualquier usuario puede reemplazarlos en una carga | Notas | Vigente |
+| RN-29 | Valores de referencia | Se cargan al dar de alta el establecimiento. Cuando arranca la cosecha de un grano en una campaña, el dueño recibe un aviso para actualizar precio del grano, flete y embolsado. Después se usan solos; el dueño los cambia cuando quiere y cualquier usuario puede reemplazarlos en una carga. Un valor rige desde el día en que se carga; el dueño no elige la fecha. Una labor usa el valor que regía en su fecha y, si es anterior al primer valor cargado, usa ese primero. Al cargar un valor, todas las labores con costo incompleto por falta de ese valor lo toman (RN-10) | Notas | Vigente |
 | RN-30 | Productos | Hay un catálogo base de productos con precios de referencia, cargado y actualizado por el administrador a partir de una lista de una persona del rubro. El usuario elige de ahí; si el producto no está, lo crea, y si no sabe el precio, queda pendiente para el dueño | Notas | Vigente |
 | RN-31 | Campaña | Una campaña es un grano más el año agrícola de su siembra, de mayo a abril (por ej., Soja 2026/27). Se arma sola: el ciclo toma su campaña al cargar la siembra, y el dueño puede pasarlo a otra a mano | Notas, Propuesta | Vigente |
 | RN-32 | Stock | Si una carga deja stock negativo (de productos o de granos), se permite, se avisa y queda marcada para revisar. Lo mismo al anular una carga cuyo efecto ya se usó | Notas | Vigente |
 | RN-33 | Stock de granos | El stock de granos está en el bolsón (uno por grano, sin importar lote ni variedad) o en un acopio, sin vender o vendido. Se mueve con la cosecha (entra), el envío (del bolsón a un acopio) y la venta (pasa a vendido, con precio, por todo o una parte, desde un acopio o directo desde el bolsón). Si el acopio liquida algo distinto, no se ajusta: vale lo que el usuario dice que vendió. Cualquier salida de grano que no es una venta (merma real, consumo propio, pérdidas en el bolsón u otras) se carga como ajuste de stock: kilos, fecha, de dónde sale y un motivo opcional, sin precio; no cuenta como ingreso. En la venta lo central son las toneladas: el precio es bruto y los costos (flete) quedan asentados en plata | Notas | Vigente |
+| RN-34 | Labores | Las hectáreas de una labor no pueden superar las ha limpias del ciclo; si las superan, se rechaza | Notas | Vigente |
+| RN-35 | Labores | Una labor no se edita: se anula y se vuelve a cargar | Notas | Vigente |
+| RN-36 | Insumos | La semilla solo va en una siembra de su mismo cultivo. Los repuestos no son insumos de una labor | Notas | Vigente |
 
 Se eliminaron RN-06 (venta directa), RN-19 (consumo de combustible), RN-21 y RN-26 (reemplazadas por RN-33 y RN-22) y RN-28 (embolsado, ahora en RN-20).
 
 ### **Glosario**
 
-* **Ciclo:** período de un lote con un solo cultivo; empieza en preparación con la primera labor y termina con su cosecha.  
+* **Ciclo: período de un lote con un solo cultivo; empieza en preparación con la primera labor y termina con su cosecha. El barbecho es su etapa en preparación, no un tipo de labor.**  
 * **Campaña:** grano más año agrícola de la siembra (mayo a abril); agrupa los ciclos de ese grano.  
 * **Valor de referencia:** costo o precio que se carga una vez y se usa solo hasta que alguien lo cambie.  
 * **Catálogo base:** lista de productos con precios de referencia, precargada para todos los establecimientos.  
 * **Lote:** parcela de un campo; tiene ha limpias (productivas) y ha de monte.  
-* **Labor:** trabajo sobre un lote (siembra, pulverización, carpida, cosecha) con insumos y costo.  
+* **Labor: trabajo sobre un lote (siembra, pulverización, fertilización, carpida manual, entre otras) con insumos y costo. La cosecha no es una labor: tiene su propio módulo.**  
 * **Costo operativo:** precio de referencia del servicio para esa labor, o el costo real si se contrató.  
-* **Carpida:** labor de desmalezado manual hecha por temporales pagados por hora.  
+* **Carpida manual: labor de desmalezado a mano, hecha por temporales pagados por hora o por personal propio. No es lo mismo que el carpidor, que es un implemento.**  
 * **Costos del establecimiento:** gastos que no son de un lote (sueldos, viáticos, mantenimiento, fletes, desmontes, otros).  
 * **Producción:** kilos cosechados por un ciclo; de ahí sale el rinde.  
 * **Stock de granos:** kilos de cada grano en el bolsón o en cada acopio, sin vender o vendidos.  
@@ -130,7 +133,7 @@ Se eliminaron RN-06 (venta directa), RN-19 (consumo de combustible), RN-21 y RN-
 * **Venta:** fijar precio a kilos de un grano; pasan a vendidos.  
 * **Ingreso real / proyectado:** lo vendido / lo no vendido, a precio de referencia vigente.  
 * **Flete:** costo por camión de un envío; va a los costos del establecimiento.  
-* **Encargado:** usuario que carga datos y consulta cargas, sin ver costos totales, márgenes ni ventas.  
+* **Encargado: usuario que carga datos y consulta cargas; ve costos, márgenes y ventas solo si el dueño lo habilita.**  
 * **Carta de porte:** documento de traslado de granos.  
 * **Merma por humedad:** descuento de peso según la humedad base del grano; acá es solo informativo.  
 * **Anulación:** marca una carga como anulada sin borrarla y revierte su efecto.
@@ -163,14 +166,14 @@ Cada carga que acepta el bot también se puede hacer en el panel web, con las mi
 | RF-22 | Exportación | Exportar datos a Excel y hacer respaldo, respetando lo que cada rol puede ver | App | Piloto 1 |
 | RF-23 | Usuarios | Alta del dueño en pantalla separada: nombre, email (confirmado por correo), contraseña, teléfono de WhatsApp (verificado mandando al bot un código que muestra el panel), nombre del establecimiento y aceptación de términos y consentimiento de audios. El dueño invita encargados con nombre y teléfono; el email y la contraseña del encargado son opcionales si solo usa el bot. El dueño puede dar de baja un número | Notas | Piloto 1 |
 | RF-24 | Integridad | Impedir borrar registros en uso; relaciones por id | App, Propuesta | Piloto 1 |
-| RF-27 | Labores | Registrar una carpida con temporales: personas y días; pago por hora y horas por día salen de los valores de referencia | Notas | Piloto 1 |
+| RF-27 | Labores | Registrar una carpida manual con temporales (personas y días; pago por hora y horas por día salen de los valores de referencia), con un costo dicho o como hecha por personal propio (RN-17) | Notas | Piloto 1 |
 | RF-28 | Usuarios | Roles dueño y encargado; un establecimiento por usuario en el piloto (varios, opcional) | Notas | Piloto 1 |
 | RF-29 | Panel web | Formularios de carga manual para todo lo que acepta el bot, por prioridad | Notas | Piloto 1 |
 | RF-30 | Cosecha | Registrar la producción de un ciclo: kilos como se pesaron, humedad opcional y destino (bolsón del grano o un acopio); si va al bolsón, suma el costo de embolsar al ciclo | Notas | Piloto 2 |
 | RF-31 | Stock de granos | Ver el stock de cada grano por ubicación: bolsón y cada acopio, sin vender y vendido | Notas | Piloto 2 |
 | RF-32 | Panel web | Panel instalable en el celular (PWA), diseñado primero para pantalla chica | App | Piloto 1 |
 | RF-33 | Granos | Lista de granos con humedad base y precio de referencia (US\$/t) | Notas | Piloto 1 |
-| RF-34 | Ciclos | Cerrar el ciclo de un lote cuando el usuario avisa que terminó de cosechar; solo el dueño puede reabrirlo | Notas | Piloto 1 |
+| RF-34 | Ciclos | Cerrar el lote (su ciclo) cuando el usuario, dueño o encargado, avisa que terminó de cosechar; solo el dueño puede reabrirlo (RN-02) | Notas | Piloto 1 |
 | RF-35 | Lluvias | Registrar lluvias por establecimiento (fecha y mm), solo como registro; se pueden consultar en el panel y por el bot | Notas | Piloto 1 |
 | RF-36 | Productos y stock | Catálogo base de productos con precios de referencia, mantenido por el administrador; el usuario elige de ahí y, si no está, crea uno propio | Notas | Piloto 1 |
 | RF-37 | Valores de referencia | Cargar los valores de referencia al dar de alta el establecimiento; avisar al dueño al arrancar la cosecha de cada grano en cada campaña para actualizar precio, flete y embolsado | Notas | Piloto 1 (aviso: Piloto 2\) |
@@ -193,7 +196,7 @@ Cada historia lleva criterios de aceptación verificables, que después se vuelv
 | HU-04 | Como productor, quiero que el bot no duplique una carga si WhatsApp reenvía el mensaje | El mismo id de mensaje procesado dos veces genera una sola carga | RB-02 |
 | HU-06 | Como productor, quiero registrar que mandé grano del bolsón al acopio | Digo grano, kilos, acopio y, si quiero, cantidad de camiones, patente o carta de porte; el stock pasa del bolsón al acopio y el flete se suma al establecimiento | RF-14, RF-31 |
 | HU-07 | Como dueño, quiero ver el margen de cada ciclo de un lote, también preguntándole al bot | El margen es producción × precio de referencia vigente − costos de producción, sobre las ha limpias del ciclo; el bot responde con los mismos números que el panel | RF-17, RB-17 |
-| HU-08 | Como encargado, quiero cargar y consultar sin acceder a la información financiera | Puedo cargar todo, consultar cargas y stock y ver precios de referencia; si consulto márgenes, costos totales o ventas, el bot responde que no tengo permiso. En la confirmación del bot y en las listas del panel veo cantidades, nunca costos | RF-28, RB-18 |
+| HU-08 | Como encargado, quiero cargar y consultar, y ver la información financiera solo si el dueño lo habilita | Puedo cargar todo, consultar cargas y stock y ver precios de referencia. Lo demás depende de lo que habilitó el dueño: sin costos (por defecto), solo costos o todo. Si consulto algo no habilitado, el bot responde que no tengo permiso; sin costos habilitados, en la confirmación del bot y en las listas del panel veo cantidades, nunca costos | RF-28, RB-18 |
 | HU-09 | Como administrador, quiero revisar qué entendió el bot de cada audio | Hay una línea de tiempo por mensaje con audio, transcripción, borrador, correcciones y resultado | RNF-05, RNF-12 |
 | HU-10 | Como administrador, quiero apagar el bot ante un problema | El interruptor detiene las cargas y el bot avisa que está en pausa | RB-12 |
 | HU-12 | Como productor, quiero saber cuántos repuestos tengo de cada modelo | Si digo "cambié 2 filtros de aceite X", se descuentan del stock y su costo suma a mantenimiento; puedo consultar el stock por modelo | RF-19, RF-03 |
@@ -311,7 +314,7 @@ modelo de datos · 28 tablas en 8 grupos
 | Tabla | Campos principales | Notas |
 | :---- | :---- | :---- |
 | usuario | nombre, teléfono de WhatsApp (único), email, activo, último establecimiento usado, código de verificación del teléfono (con hash), vencimiento del código e intentos | Global; la contraseña la maneja Supabase Auth |
-| establecimiento | nombre, equipos propios de pulverización (por defecto, mosquito) | Los valores de referencia van en su propia tabla |
+| establecimiento | nombre, equipos propios de pulverización (por defecto, mosquito), qué ven los encargados (sin costos, solo costos o todo; por defecto, sin costos) | Los valores de referencia van en su propia tabla |
 | membresia | usuario, establecimiento, rol (dueño o encargado), activa | Dar de baja una membresía corta el acceso en el momento |
 
 ### **Campo**
@@ -338,10 +341,10 @@ modelo de datos · 28 tablas en 8 grupos
 
 | Tabla | Campos principales | Notas |
 | :---- | :---- | :---- |
-| tipo\_labor | nombre, equipo (solo pulverización: mosquito, dron o avión) | Global; su precio está en valor\_referencia |
-| labor | ciclo, lote, tipo, fecha, ha, contratado (sí o no), costo del servicio, costo de insumos, costo total | El ciclo sale de la fecha; costos guardados al cargar (RN-10) |
+| tipo\_labor | nombre, equipo (solo pulverización: mosquito, dron o avión) | Global; su precio está en valor\_referencia. Tipos: siembra, pulverización (mosquito, dron o avión), fertilización, carpidor, disco, rastra cadena, rolo picador, carpida manual y otra |
+| labor | ciclo, lote, tipo, fecha, ha, contratado (sí o no), personal propio (sí o no), descripción (obligatoria en "otra"), moneda y tipo de cambio, costo del servicio, costo de insumos, costo total, costo incompleto (sí o no) | El ciclo sale de la fecha; costos guardados al cargar (RN-10) |
 | labor\_insumo | labor, producto, dosis por ha, unidad de la dosis, cantidad total, precio unitario, costo | La dosis en kg/ha se convierte a bolsas para el stock |
-| carpida | labor, personas, días, horas por día, pago por hora, costo | Solo en labores de carpida |
+| carpida | labor, personas, días, horas por día, pago por hora, costo | Solo en la carpida manual y en la labor "otra" hechas con temporales |
 
 ### **Costos del establecimiento**
 
@@ -371,7 +374,7 @@ El stock de granos no es una tabla: para cada grano y cada ubicación (bolsón, 
 
 | Tabla | Campos principales | Notas |
 | :---- | :---- | :---- |
-| valor\_referencia | concepto (servicio de labor, pulverización por equipo, flete, embolsado, pago por hora y horas de carpida, precio de grano), tipo de labor o grano según el concepto, campaña (para precios de granos, flete y embolsado), valor, desde cuándo | Un cambio crea una fila nueva, así queda el historial |
+| valor\_referencia | concepto (servicio de labor, pulverización por equipo, flete, embolsado, pago por hora y horas de carpida, precio de grano), tipo de labor o grano según el concepto, campaña (para precios de granos, flete y embolsado), valor, desde cuándo (lo pone el sistema: el día en que se carga) | Un cambio crea una fila nueva, así queda el historial |
 
 ### **Bot y auditoría**
 
@@ -406,7 +409,7 @@ El bot carga todo lo que acepta el panel y responde consultas, pero nunca escrib
 | RB-15 | Rechazar números no registrados o dados de baja y mensajes fuera del tema | Piloto 1 |
 | RB-16 | Respetar la ventana de 24 h de WhatsApp; fuera de ella, plantillas aprobadas | Piloto 2 |
 | RB-17 | Responder consultas de un conjunto fijo de preguntas con datos calculados por el sistema; el modelo de lenguaje solo elige la pregunta y sus parámetros, nunca arma consultas libres a la base | Piloto 1 (márgenes y ventas: Piloto 2\) |
-| RB-18 | Aplicar permisos por rol: al encargado le responde sobre cargas, stock y precios de referencia, no sobre costos totales, márgenes, utilidad ni ventas | Piloto 1 |
+| RB-18 | Aplicar permisos por rol: al encargado le responde sobre cargas, stock y precios de referencia, y además sobre costos (de labores, insumos y compras) o sobre todo (también márgenes, utilidad y ventas) según lo que habilitó el dueño; por defecto, sin costos | Piloto 1 |
 | RB-19 | Si nombra un producto que no está en su establecimiento, buscarlo en el catálogo base y ofrecer agregarlo con el precio del catálogo; si tampoco está ahí y no se dice el precio, se crea con el precio pendiente para el dueño | Piloto 1 |
 | RB-20 | Si la persona tiene varios establecimientos, usar el último y permitir cambiarlo por nombre | Opcional |
 | RB-21 | Al arrancar la cosecha de un grano en una campaña, avisar al dueño para actualizar precio del grano, flete y embolsado | Piloto 2 |
@@ -526,12 +529,20 @@ Lo decidido, con el porqué, para no volver a discutirlo; abajo, lo que sigue ab
 | Nov 2026 | En la app solo se registran ventas; cualquier otra salida de grano es un ajuste de stock (kilos, ubicación y motivo opcional, sin precio), que no cuenta como ingreso | El rinde sale de la cosecha completa y el stock coincide con lo que hay en el campo, sin cargar en la app ventas que el productor no quiere registrar; el mismo ajuste sirve para merma, consumo propio y pérdidas |
 | Nov 2026 | Los repuestos usan la unidad "unidad"; las categorías de producto son herbicida, insecticida, fungicida, coadyuvante, fertilizante, semilla, repuesto u otro | Los repuestos se cuentan por pieza ("cambié 2 filtros"), y una lista fija de categorías permite validar y filtrar sin configuración extra |
 | Nov 2026 | El catálogo base viene precargado desde un CSV que mantiene el administrador; al usar un producto del catálogo por primera vez, el sistema crea solo la copia del establecimiento (las semillas traen un peso por bolsa típico que el usuario puede cambiar). Los productos propios quedan solo en su establecimiento. Los repuestos tienen tipo (cubierta, filtro, correa u otro), modelo obligatorio de texto libre, rodado en las cubiertas y notas opcionales; el bot ofrece los repuestos parecidos que ya existen antes de crear uno nuevo | El usuario no tiene que dar de alta lo que ya está en el catálogo, y no se cargan dos veces los mismos repuestos con otra escritura |
+| 25 Nov 2026 | El dólar es global: lo cargan solo el administrador o la descarga automática; las compras y labores en pesos lo toman solas, salvo que se diga otro (RN-16) | Es la cotización con la que se liquida el agro y conviene un solo valor para todos |
+| 25 Nov 2026 | Tipos de labor: siembra, pulverización (mosquito, dron, avión), fertilización, carpidor, disco, rastra cadena, rolo picador, carpida manual y otra. El barbecho es la etapa en preparación del ciclo y la cosecha no es una labor | Cubre las labores reales del piloto; barbecho y cosecha ya tenían su lugar en el modelo |
+| 25 Nov 2026 | Una labor con más hectáreas que las limpias del ciclo se rechaza; las labores no se editan, se anulan; la semilla solo va en una siembra de su cultivo y los repuestos no son insumos (RN-34 a RN-36) | Mantiene consistentes el stock, los costos y el rinde |
+| 26 Nov 2026 | Ciclo: se cierra con "cerrar lote" (dueño o encargado, o el bot al sembrar otro cultivo); reglas de fechas alrededor del cierre; la siembra reemplaza el cultivo planeado y se rechaza con otro cultivo abierto; solo el dueño reabre, si no hay otro ciclo abierto (RN-02) | Que cada labor caiga en un único ciclo posible, sin ambigüedad |
+| 26 Nov 2026 | Un costo incompleto se completa con lo primero que aparezca (precio fijado por el dueño, compra con precio o valor de referencia nuevo) y después queda fijo, también en ciclos cerrados (RN-10) | No dejar labores sin costo por un dato que llega después |
+| 26 Nov 2026 | Los valores de referencia rigen desde el día en que se cargan; una labor anterior al primer valor usa ese primero (RN-29) | Evita fechas retroactivas que cambien costos pasados |
+| 26 Nov 2026 | La carpida manual y la labor "otra" se costean con temporales, con un costo dicho o como personal propio (costo cero); el costo real de las demás labores se carga solo si fueron contratadas (RN-11, RN-17) | El sueldo del personal propio ya es costo del establecimiento (RN-15) |
+| 26 Nov 2026 | El dueño elige qué ven todos los encargados de su establecimiento: sin costos (por defecto), solo costos o todo (RB-18) | Algunos dueños delegan en el encargado el seguimiento de costos |
 
 ## **Preguntas abiertas**
 
-Quedan cuatro temas abiertos; ninguno cambia el modelo de datos.
+Quedan tres temas abiertos; ninguno cambia el modelo de datos.
 
-* ☐ **Permisos del encargado:** reglas finas de qué puede consultar y ver en el panel.  
+* ☑ Permisos del encargado: resuelto el 26/11/2026; el dueño elige qué ven los encargados (sección 2).  
 * ☐ **Privacidad:** consulta con abogado sobre consentimiento, retención de audios e inscripción en la AAIP.  
 * ☐ **Costo de WhatsApp en Argentina:** a confirmar con Meta.  
 * ☐ **Precio al usuario:** en dólares; el monto se define al final.
