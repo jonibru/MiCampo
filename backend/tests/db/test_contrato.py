@@ -2,7 +2,7 @@
 from helpers import filas
 
 TABLAS_PUBLIC = "select c.oid, c.relname from pg_class c where c.relkind = 'r' and c.relnamespace = 'public'::regnamespace"
-TABLAS_GLOBALES = {"cultivo", "catalogo_producto"}  # sin establecimiento_id: solo lectura para el backend
+TABLAS_GLOBALES = {"cultivo", "catalogo_producto", "tipo_cambio", "tipo_labor"}  # sin establecimiento_id: solo lectura para el backend
 
 
 def test_todas_las_tablas_tienen_rls_forzado(admin):

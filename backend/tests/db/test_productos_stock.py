@@ -20,9 +20,8 @@ def producto(app, m, nombre="Glifosato 48%", categoria="herbicida", unidad="l", 
 
 def compra(app, m, items, fecha="2026-11-20", moneda="USD", tc=None):
     """items: lista de (producto, cantidad, precio en la moneda de la compra o None)."""
-    fuente = "manual" if tc else None
-    c = uno(app, "insert into compra (establecimiento_id, fecha, moneda, tipo_cambio, tipo_cambio_fuente) "
-                 "values (%s, %s, %s, %s, %s) returning id", m["est"], fecha, moneda, tc, fuente)
+    c = uno(app, "insert into compra (establecimiento_id, fecha, moneda, tipo_cambio) "
+                 "values (%s, %s, %s, %s) returning id", m["est"], fecha, moneda, tc)
     for prod, cant, precio in items:
         app.execute("insert into compra_item (establecimiento_id, compra_id, producto_id, cantidad, precio_unitario) "
                     "values (%s, %s, %s, %s, %s)", (m["est"], c, prod, cant, precio))
@@ -215,10 +214,28 @@ def test_compra_en_pesos_se_guarda_en_dolares_con_el_original(app, m):
 
 def test_compra_en_pesos_exige_tipo_de_cambio(app, m):
     ctx(app, m["dueno"], m["est"])
+    # sin cotización cargada para esa fecha y sin decir el tipo de cambio, se rechaza
     falla(app, psycopg.errors.CheckViolation,
-          "insert into compra (establecimiento_id, fecha, moneda) values (%s, current_date, 'ARS')", m["est"])
+          "insert into compra (establecimiento_id, fecha, moneda) values (%s, '2010-01-01', 'ARS')", m["est"])
     falla(app, psycopg.errors.CheckViolation,
-          "insert into compra (establecimiento_id, fecha, moneda, tipo_cambio, tipo_cambio_fuente) values (%s, current_date, 'USD', 1000, 'manual')", m["est"])
+          "insert into compra (establecimiento_id, fecha, moneda, tipo_cambio) values (%s, current_date, 'USD', 1000)", m["est"])
+    # la fuente la pone el sistema
+    falla(app, psycopg.errors.InsufficientPrivilege,
+          "insert into compra (establecimiento_id, fecha, moneda, tipo_cambio, tipo_cambio_fuente) "
+          "values (%s, current_date, 'ARS', 1000, 'automatico')", m["est"])
+
+
+def test_compra_en_pesos_toma_sola_el_dolar_del_dia(app, m, admin):
+    with admin.transaction():
+        admin.execute("insert into tipo_cambio (fecha_hora, valor, fuente) values "
+                      "('2021-06-10 11:00-03', 100, 'automatico'), ('2021-06-11 16:00-03', 110, 'manual') "
+                      "on conflict do nothing")
+    ctx(app, m["dueno"], m["est"])
+    p = producto(app, m, precio=10)
+    c1 = compra(app, m, [(p, 10, 1500)], fecha="2021-06-10", moneda="ARS")
+    c2 = compra(app, m, [(p, 10, 1650)], fecha="2021-06-12", moneda="ARS")
+    assert filas(app, "select tipo_cambio, tipo_cambio_fuente, total_usd from compra where id = %s", c1) == [(100, "automatico", 150)]
+    assert filas(app, "select tipo_cambio, tipo_cambio_fuente, total_usd from compra where id = %s", c2) == [(110, "manual", 150)]
 
 
 def test_items_de_una_misma_compra_se_procesan_en_el_orden_de_carga(app, m):
