@@ -108,6 +108,11 @@ def ciclo(app, lab):
     return fila(app, "ciclo", fila(app, "labor", lab)["ciclo_id"])
 
 
+def cerrar(app, m, fecha, lote=None):
+    """Cierra el ciclo abierto del lote, como el bot o el panel ("terminamos de cosechar")."""
+    return uno(app, "select app.cerrar_lote(%s, %s::date)", lote or m["lote"], fecha)
+
+
 # Tipo de cambio (RN-16, RF-21) -----------------------------------------------------------------------
 
 class _Deshacer(Exception):
@@ -268,13 +273,12 @@ def test_hu20_una_labor_en_un_ciclo_cerrado_se_rechaza_y_solo_el_dueno_reabre(ap
     ctx(app, m["encargado"], m["est"])
     s = labor(app, m, "siembra", "2026-06-01", cultivo_id=cultivo(app, "Trigo"))
     c = ciclo(app, s)["id"]
-    app.execute("update ciclo set estado = 'cerrado', fecha_cierre = '2026-12-01' where id = %s", (c,))
+    cerrar(app, m, "2026-12-01")
     args = (m["est"], m["lote"], "pulverizacion_mosquito", "2026-10-15", 50)
     rechaza(app, r"cae en el ciclo de Trigo 2026/27 del lote, cerrado el 01/12/2026: solo el dueño puede reabrirlo",
             sql_labor() + ")", *args)
     # el encargado no puede reabrirlo
-    falla(app, psycopg.errors.InsufficientPrivilege,
-          "update ciclo set estado = 'abierto', fecha_cierre = null where id = %s", c)
+    falla(app, psycopg.errors.InsufficientPrivilege, "select app.reabrir_ciclo(%s)", c)
     # lo del mismo día del cierre en adelante va a un ciclo nuevo
     nueva = labor(app, m, "pulverizacion_mosquito", "2026-12-01")
     assert ciclo(app, nueva)["id"] != c and ciclo(app, nueva)["estado"] == "en_preparacion"
@@ -286,16 +290,40 @@ def test_hu20_si_el_dueno_reabre_el_ciclo_la_labor_entra(app, m):
     ctx(app, m["dueno"], m["est"])
     s = labor(app, m, "siembra", "2026-06-01", cultivo_id=cultivo(app, "Trigo"))
     c = ciclo(app, s)["id"]
-    app.execute("update ciclo set estado = 'cerrado', fecha_cierre = '2026-12-01' where id = %s", (c,))
-    app.execute("update ciclo set estado = 'abierto', fecha_cierre = null where id = %s", (c,))
+    cerrar(app, m, "2026-12-01")
+    app.execute("select app.reabrir_ciclo(%s)", (c,))
     assert ciclo(app, labor(app, m, "pulverizacion_mosquito", "2026-10-15"))["id"] == c
 
 
 def test_una_fecha_anterior_a_un_ciclo_cerrado_se_rechaza(app, m):
     ctx(app, m["dueno"], m["est"])
-    s = labor(app, m, "siembra", "2026-06-01", cultivo_id=cultivo(app, "Trigo"))
-    app.execute("update ciclo set estado = 'cerrado', fecha_cierre = '2026-12-01' where id = %s", (ciclo(app, s)["id"],))
+    labor(app, m, "siembra", "2026-06-01", cultivo_id=cultivo(app, "Trigo"))
+    cerrar(app, m, "2026-12-01")
     rechaza(app, "cerrado", sql_labor() + ")", m["est"], m["lote"], "disco", "2026-03-01", 50)
+
+
+def test_cerrar_lote_no_deja_labores_despues_del_cierre(app, m):
+    ctx(app, m["encargado"], m["est"])
+    labor(app, m, "siembra", "2026-11-01", cultivo_id=cultivo(app, "Soja"))
+    ultima = labor(app, m, "pulverizacion_mosquito", "2027-01-15")
+    rechaza(app, "tiene labores hasta el 15/01/2027: no se puede cerrar antes",
+            "select app.cerrar_lote(%s, '2027-01-10')", m["lote"])
+    # una labor anulada no cuenta
+    anular(app, "labor", ultima, m["encargado"])
+    c = uno(app, "select app.cerrar_lote(%s, '2027-01-10')", m["lote"])
+    assert filas(app, "select estado, fecha_cierre::text from ciclo where id = %s", c) == [("cerrado", "2027-01-10")]
+
+
+def test_tras_cerrar_lote_la_siembra_de_otro_cultivo_va_a_un_ciclo_nuevo(app, m):
+    """RN-02: la base rechaza la siembra con otro cultivo abierto; el bot pregunta, cierra el lote y vuelve a cargarla."""
+    ctx(app, m["encargado"], m["est"])
+    trigo = labor(app, m, "siembra", "2026-06-01", cultivo_id=cultivo(app, "Trigo"))
+    args = (m["est"], m["lote"], "siembra", "2026-12-10", 50, cultivo(app, "Soja"))
+    rechaza(app, "hay que cerrarlo antes de sembrar Soja", sql_labor(", cultivo_id") + ", %s)", *args)
+    cerrar(app, m, "2026-12-10")
+    soja = labor(app, m, "siembra", "2026-12-10", cultivo_id=cultivo(app, "Soja"))
+    assert ciclo(app, soja)["id"] != ciclo(app, trigo)["id"]
+    assert (ciclo(app, soja)["estado"], ciclo(app, soja)["campana_anio"]) == ("abierto", 2026)
 
 
 def test_sembrar_otro_cultivo_con_un_ciclo_abierto_se_rechaza(app, m):
@@ -603,7 +631,7 @@ def test_un_costo_incompleto_se_completa_aunque_el_ciclo_este_cerrado(app, m):
     nuevo = producto(app, m, "Herbicida nuevo")
     lab = labor(app, m, "disco", "2026-10-01", ha=10)
     li = insumo(app, m, lab, nuevo, dosis=1, unidad="l")
-    app.execute("update ciclo set estado = 'cerrado', fecha_cierre = '2026-12-01' where id = %s", (ciclo(app, lab)["id"],))
+    cerrar(app, m, "2026-12-01")
     ref(app, m, "servicio_labor", 15, tipo_labor="disco")
     app.execute("select app.fijar_precio_pendiente(%s, 6)", (nuevo,))
     f = fila(app, "labor", lab)
@@ -753,7 +781,7 @@ def test_una_labor_de_un_ciclo_cerrado_no_se_anula_ni_se_completa(app, m):
     ctx(app, m["dueno"], m["est"])
     glifo = producto(app, m, precio=4)
     lab = labor(app, m, "pulverizacion_mosquito", "2026-10-01")
-    app.execute("update ciclo set estado = 'cerrado', fecha_cierre = '2026-12-01' where id = %s", (ciclo(app, lab)["id"],))
+    cerrar(app, m, "2026-12-01")
     rechaza(app, "que está cerrado: solo se anula si el dueño lo reabre",
             "update labor set anulada_en = now(), anulada_por = %s where id = %s", m["dueno"], lab)
     rechaza(app, "ciclo cerrado", "insert into labor_insumo (establecimiento_id, labor_id, producto_id, dosis_ha, unidad) "

@@ -30,6 +30,8 @@
 --                       escribe el backend
 --     movimiento_stock  clave foránea y unicidad de labor_insumo_id; el backend ya no lo escribe
 --     establecimiento   nueva columna visibilidad_encargado
+--     ciclo             el backend ya no cambia estado, fechas ni ha: se cierra con app.cerrar_lote y se reabre
+--                       con app.reabrir_ciclo; solo edita el cultivo planeado y la campaña
 
 -- Tipo de cambio (RN-01, RN-16, RF-21): global, dólar divisa mayorista ---------------------------
 create table public.tipo_cambio (
@@ -201,16 +203,20 @@ $$;
 --   * si el lote no tiene ninguno, se crea uno en preparación con las ha limpias del lote (RN-12).
 -- Con p_cultivo_siembra (una siembra), el ciclo toma el cultivo y la campaña y pasa a abierto. Si ya está abierto
 -- con otro cultivo, se rechaza: primero hay que cerrar el anterior (el bot pregunta, RN-02).
+-- Corre con permisos del sistema (el backend no edita ciclos a mano), por eso verifica el establecimiento y la
+-- membresía de quien carga antes de tocar nada.
 create function app.ciclo_para_labor(p_lote uuid, p_fecha date, p_cultivo_siembra uuid default null)
 returns uuid
-language plpgsql set search_path = ''
+language plpgsql security definer set search_path = ''
 as $$
 declare
   v_ciclo public.ciclo;
   v_cerrado public.ciclo;
 begin
   -- Serializa las cargas del mismo lote, para no crear dos ciclos a la vez.
-  perform 1 from public.lote where id = p_lote for update;
+  perform 1 from public.lote
+  where id = p_lote and establecimiento_id = app.establecimiento_id() and app.es_miembro()
+  for update;
   if not found then
     raise exception 'el lote no existe' using errcode = '22023';
   end if;
@@ -258,6 +264,73 @@ begin
     end if;
   end if;
   return v_ciclo.id;
+end
+$$;
+
+-- Cerrar lote (RN-02, RF-34): cierra el ciclo abierto (o en preparación) del lote en una fecha.
+-- Lo usan el bot ("terminamos de cosechar el lote 3") y el panel; lo puede hacer el dueño o el encargado.
+-- La fecha de cierre no puede ser anterior al inicio ni a la última labor del ciclo. Lo que se cargue después,
+-- con fecha del cierre en adelante, va al ciclo siguiente. Devuelve el ciclo cerrado.
+create function app.cerrar_lote(p_lote uuid, p_fecha date) returns uuid
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_ciclo public.ciclo;
+  v_ultima date;
+begin
+  perform 1 from public.lote
+  where id = p_lote and establecimiento_id = app.establecimiento_id() and app.es_miembro()
+  for update;
+  if not found then
+    raise exception 'el lote no existe' using errcode = '22023';
+  end if;
+  if p_fecha is null then
+    raise exception 'falta la fecha de cierre' using errcode = '22023';
+  end if;
+  select * into v_ciclo from public.ciclo where lote_id = p_lote and estado <> 'cerrado';
+  if not found then
+    raise exception 'el lote no tiene un ciclo abierto para cerrar' using errcode = '23514', hint = 'sin_ciclo_abierto';
+  end if;
+  if p_fecha < v_ciclo.fecha_inicio then
+    raise exception 'el ciclo de % empezó el %: no se puede cerrar antes', app.nombre_ciclo(v_ciclo.id),
+      to_char(v_ciclo.fecha_inicio, 'DD/MM/YYYY') using errcode = '23514';
+  end if;
+  select max(fecha) into v_ultima from public.labor where ciclo_id = v_ciclo.id and anulada_en is null;
+  if v_ultima is not null and p_fecha < v_ultima then
+    raise exception 'el ciclo de % tiene labores hasta el %: no se puede cerrar antes', app.nombre_ciclo(v_ciclo.id),
+      to_char(v_ultima, 'DD/MM/YYYY') using errcode = '23514', hint = 'labores_posteriores';
+  end if;
+  update public.ciclo set estado = 'cerrado', fecha_cierre = p_fecha where id = v_ciclo.id;
+  return v_ciclo.id;
+end
+$$;
+
+-- Reabrir un ciclo cerrado: solo el dueño (RN-02, RB-23), y solo si el lote no tiene otro ciclo abierto.
+-- Vuelve a abierto si tenía siembra (campaña) o a en preparación si no.
+create function app.reabrir_ciclo(p_ciclo uuid) returns void
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  v_ciclo public.ciclo;
+  v_otro uuid;
+begin
+  if not app.es_dueno() then
+    raise exception 'solo el dueño puede reabrir un ciclo cerrado' using errcode = '42501';
+  end if;
+  select * into v_ciclo from public.ciclo
+  where id = p_ciclo and establecimiento_id = app.establecimiento_id()
+  for update;
+  if not found or v_ciclo.estado <> 'cerrado' then
+    raise exception 'el ciclo no existe o no está cerrado' using errcode = '22023';
+  end if;
+  select id into v_otro from public.ciclo where lote_id = v_ciclo.lote_id and estado <> 'cerrado';
+  if v_otro is not null then
+    raise exception 'el lote ya tiene abierto el ciclo de %: hay que cerrarlo antes de reabrir este',
+      app.nombre_ciclo(v_otro) using errcode = '23514', hint = 'otro_ciclo_abierto';
+  end if;
+  update public.ciclo
+  set estado = case when campana_anio is null then 'en_preparacion' else 'abierto' end, fecha_cierre = null
+  where id = p_ciclo;
 end
 $$;
 
@@ -888,6 +961,11 @@ select app.proteger_tabla('public.labor', p_carga => true);
 select app.proteger_tabla('public.labor_insumo');
 select app.proteger_tabla('public.carpida');
 
+-- ciclo: el estado, las fechas y las ha los maneja el sistema (labores, cerrar lote, reabrir ciclo). El backend solo
+-- cambia el cultivo planeado y la campaña (RN-31).
+revoke update on public.ciclo from micampo_app;
+grant update (cultivo_id, campana_anio) on public.ciclo to micampo_app;
+
 -- valor_referencia: solo se agregan filas, y solo el dueño (RN-29). La fecha desde la que rige la pone el sistema.
 revoke insert, update on public.valor_referencia from micampo_app;
 grant insert (establecimiento_id, concepto, tipo_labor_id, cultivo_id, campana_anio, valor)
@@ -915,7 +993,8 @@ grant insert (establecimiento_id, labor_id, personas, dias, horas_dia, pago_hora
 grant execute on function app.tipo_cambio_vigente(date),
   app.valor_referencia_vigente(text, date, uuid, uuid, integer),
   app.nombre_ciclo(uuid), app.ciclo_para_labor(uuid, date, uuid),
-  app.labor_admite_agregados(uuid), app.visibilidad() to micampo_app;
+  app.labor_admite_agregados(uuid), app.visibilidad(), app.cerrar_lote(uuid, date),
+  app.reabrir_ciclo(uuid) to micampo_app;
 
 -- PostgreSQL deja ejecutar cualquier función nueva a todos (PUBLIC). Se quita, y el backend
 -- solo ejecuta lo que se le concedió explícitamente arriba. Cada migración que crea funciones termina así.

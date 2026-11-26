@@ -49,9 +49,21 @@ def test_al_cerrar_un_ciclo_se_puede_abrir_otro(app, admin):
     m = crear_establecimiento(admin, "Ciclos 2")
     ctx(app, m["dueno"], m["est"])
     c1 = _ciclo(app, m)
-    app.execute("update ciclo set estado = 'cerrado', fecha_cierre = '2027-05-01' where id = %s", (c1,))
+    assert uno(app, "select app.cerrar_lote(%s, '2027-05-01')", m["lote"]) == c1
     _ciclo(app, m)
     assert uno(app, "select count(*) from ciclo") == 2
+
+
+def test_el_backend_no_cambia_estado_ni_fechas_del_ciclo_a_mano(app, admin):
+    m = crear_establecimiento(admin, "Ciclos 2b")
+    ctx(app, m["dueno"], m["est"])
+    c = _ciclo(app, m)
+    for sql in ("update ciclo set estado = 'cerrado', fecha_cierre = '2027-05-01' where id = %s",
+                "update ciclo set fecha_inicio = '2026-01-01' where id = %s",
+                "update ciclo set ha_limpias = 5 where id = %s"):
+        falla(app, psycopg.errors.InsufficientPrivilege, sql, c)
+    # el cultivo planeado y la campaña sí (RN-31)
+    app.execute("update ciclo set cultivo_id = (select id from cultivo where nombre = 'Soja'), campana_anio = 2026 where id = %s", (c,))
 
 
 def test_cierre_y_fecha_de_cierre_van_juntos(app, admin):
@@ -80,20 +92,66 @@ def test_la_campana_exige_cultivo(app, admin):
 def test_solo_el_dueno_reabre_un_ciclo_cerrado(app, admin):
     m = crear_establecimiento(admin, "Ciclos 5")
     ctx(app, m["dueno"], m["est"])
-    c = _ciclo(app, m)
-    app.execute("update ciclo set estado = 'cerrado', fecha_cierre = '2027-05-01' where id = %s", (c,))
+    c = _ciclo(app, m, estado="abierto", cultivo=uno(app, "select id from cultivo where nombre = 'Soja'"), campana=2026)
+    app.execute("select app.cerrar_lote(%s, '2027-05-01')", (m["lote"],))
     ctx(app, m["encargado"], m["est"])
-    falla(app, psycopg.errors.InsufficientPrivilege,
-          "update ciclo set estado = 'abierto', fecha_cierre = null where id = %s", c)
+    falla(app, psycopg.errors.InsufficientPrivilege, "select app.reabrir_ciclo(%s)", c)
     ctx(app, m["dueno"], m["est"])
-    assert app.execute("update ciclo set estado = 'abierto', fecha_cierre = null where id = %s", (c,)).rowcount == 1
+    app.execute("select app.reabrir_ciclo(%s)", (c,))
+    assert filas(app, "select estado, fecha_cierre from ciclo where id = %s", c) == [("abierto", None)]
 
 
-def test_el_encargado_puede_cerrar_un_ciclo(app, admin):
+def test_reabrir_un_ciclo_sin_siembra_vuelve_a_preparacion(app, admin):
+    m = crear_establecimiento(admin, "Ciclos 5b")
+    ctx(app, m["dueno"], m["est"])
+    c = _ciclo(app, m)
+    app.execute("select app.cerrar_lote(%s, '2027-05-01')", (m["lote"],))
+    app.execute("select app.reabrir_ciclo(%s)", (c,))
+    assert uno(app, "select estado from ciclo where id = %s", c) == "en_preparacion"
+
+
+def test_no_se_reabre_un_ciclo_si_el_lote_tiene_otro_abierto(app, admin):
+    m = crear_establecimiento(admin, "Ciclos 5c")
+    ctx(app, m["dueno"], m["est"])
+    c1 = _ciclo(app, m)
+    app.execute("select app.cerrar_lote(%s, '2027-05-01')", (m["lote"],))
+    _ciclo(app, m)
+    with pytest.raises(psycopg.errors.CheckViolation, match="hay que cerrarlo antes de reabrir este"):
+        with app.transaction():
+            app.execute("select app.reabrir_ciclo(%s)", (c1,))
+
+
+def test_el_encargado_puede_cerrar_un_lote(app, admin):
     m = crear_establecimiento(admin, "Ciclos 6")
     ctx(app, m["encargado"], m["est"])
     c = _ciclo(app, m)
-    assert app.execute("update ciclo set estado = 'cerrado', fecha_cierre = '2027-05-01' where id = %s", (c,)).rowcount == 1
+    assert uno(app, "select app.cerrar_lote(%s, '2027-05-01')", m["lote"]) == c
+    assert filas(app, "select estado, fecha_cierre::text from ciclo where id = %s", c) == [("cerrado", "2027-05-01")]
+
+
+def test_cerrar_un_lote_sin_ciclo_abierto_o_antes_de_su_inicio_se_rechaza(app, admin):
+    m = crear_establecimiento(admin, "Ciclos 7")
+    ctx(app, m["dueno"], m["est"])
+    with pytest.raises(psycopg.errors.CheckViolation, match="no tiene un ciclo abierto"):
+        with app.transaction():
+            app.execute("select app.cerrar_lote(%s, '2027-05-01')", (m["lote"],))
+    _ciclo(app, m)                                   # empieza el 01/10/2026
+    with pytest.raises(psycopg.errors.CheckViolation, match="empezó el 01/10/2026"):
+        with app.transaction():
+            app.execute("select app.cerrar_lote(%s, '2026-09-30')", (m["lote"],))
+
+
+def test_no_se_cierra_el_lote_de_otro_establecimiento(app, admin):
+    a, b = crear_establecimiento(admin, "Ciclos 8A"), crear_establecimiento(admin, "Ciclos 8B")
+    ctx(app, a["dueno"], a["est"])
+    c = _ciclo(app, a)
+    ctx(app, b["dueno"], b["est"])
+    falla(app, psycopg.errors.InvalidParameterValue, "select app.cerrar_lote(%s, '2027-05-01')", a["lote"])
+    falla(app, psycopg.errors.InvalidParameterValue, "select app.reabrir_ciclo(%s)", c)
+    ctx(app, a["encargado"], b["est"])               # no es miembro de B
+    falla(app, psycopg.errors.InvalidParameterValue, "select app.cerrar_lote(%s, '2027-05-01')", b["lote"])
+    ctx(app, a["dueno"], a["est"])
+    assert uno(app, "select estado from ciclo where id = %s", c) == "en_preparacion"
 
 
 @pytest.mark.parametrize("fecha,esperado", [
